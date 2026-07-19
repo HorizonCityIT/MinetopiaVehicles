@@ -1,6 +1,7 @@
 package nl.mtvehicles.core.listeners;
 
 import de.tr7zw.changeme.nbtapi.NBTItem;
+import nl.mtvehicles.core.Main;
 import nl.mtvehicles.core.events.VehiclePlaceEvent;
 import nl.mtvehicles.core.infrastructure.enums.Message;
 import nl.mtvehicles.core.infrastructure.enums.RegionAction;
@@ -85,8 +86,16 @@ public class VehiclePlaceListener extends MTVListener {
 
         Location location = loc.clone().add(0, 1, 0);
 
-        VehicleUtils.spawnVehicle(license, location);
-        player.getInventory().remove(player.getEquipment().getItemInHand());
+        try {
+            VehicleUtils.spawnVehicle(license, location);
+        } catch (IllegalArgumentException exception) {
+            Main.logWarning("Could not place vehicle " + license + ": " + exception.getMessage());
+            ConfigModule.messagesConfig.sendMessage(player, Message.VEHICLE_NOT_FOUND);
+            event.setCancelled(true);
+            return;
+        }
+        ItemStack hand = player.getInventory().getItemInMainHand();
+        player.getInventory().setItemInMainHand(hand.getAmount() <= 1 ? null : hand.asQuantity(hand.getAmount() - 1));
         player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_PLACE).replace("%p%", vehicle.getOwnerName())));
         event.setCancelled(true);
     }

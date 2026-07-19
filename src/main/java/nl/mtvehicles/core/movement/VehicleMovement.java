@@ -1,13 +1,13 @@
 package nl.mtvehicles.core.movement;
 
 import com.google.common.collect.Sets;
+import io.papermc.paper.entity.TeleportFlag;
 import nl.mtvehicles.core.Main;
 import nl.mtvehicles.core.events.HornUseEvent;
 import nl.mtvehicles.core.events.TankShootEvent;
 import nl.mtvehicles.core.events.VehicleRegionEnterEvent;
 import nl.mtvehicles.core.events.VehicleRegionLeaveEvent;
 import nl.mtvehicles.core.infrastructure.annotations.ToDo;
-import nl.mtvehicles.core.infrastructure.annotations.VersionSpecific;
 import nl.mtvehicles.core.infrastructure.dataconfig.DefaultConfig;
 import nl.mtvehicles.core.infrastructure.dataconfig.VehicleDataConfig;
 import nl.mtvehicles.core.infrastructure.enums.*;
@@ -27,27 +27,23 @@ import org.bukkit.entity.*;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.Nullable;
 
-import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static nl.mtvehicles.core.Main.instance;
 import static nl.mtvehicles.core.Main.schedulerRun;
-import static nl.mtvehicles.core.infrastructure.modules.VersionModule.getServerVersion;
-import static nl.mtvehicles.core.movement.PacketHandler.isObjectPacket;
 
 /**
  * Class concerning the movement of vehicles
  */
 public class VehicleMovement {
     /**
-     * Given steering packet, checked.
-     * @see PacketHandler#isObjectPacket(Object)
+     * Current Paper input snapshot.
      */
-    protected Object packet;
+    protected Input input;
 
     /**
      * Player who is steering the vehicle.
@@ -91,23 +87,19 @@ public class VehicleMovement {
     protected boolean extremeFalling = false;
 
     protected boolean headlightsEnabled = false;
+    private String invalidRotorDataLicense;
 
 
     /**
      * Main method for vehicles' movement
      * @param player Player who is steering the vehicle
-     * @param packet Packet used for steering (will be checked)
-     *
-     * @see PacketHandler#isObjectPacket(Object)
+     * @param input current input exposed by Paper
      */
-    public void vehicleMovement(Player player, Object packet) {
-
-        //Do not continue if the correct packet has not been given
-        if (!isObjectPacket(packet)) return;
-        this.packet = packet;
+    public void vehicleMovement(Player player, Input input) {
+        if (input == null) return;
+        this.input = input;
 
         this.player = player;
-        AtomicLong lastUsed = new AtomicLong(0L);
 
         if (player.getVehicle() == null) return;
         final Entity vehicle = player.getVehicle();
@@ -128,6 +120,11 @@ public class VehicleMovement {
         vehicleType = VehicleData.type.get(license);
         if (vehicleType == null) return;
 
+        // A movement instance is reused for the driver, so tick-scoped state must be reset.
+        isFalling = false;
+        extremeFalling = false;
+        headlightsEnabled = false;
+
         if (VehicleData.fuel.get(license) < 1) {
             BossBarUtils.setBossBarValue(0 / 100.0D, license);
             if (vehicleType.canFly()) {
@@ -145,7 +142,7 @@ public class VehicleMovement {
         standRotors = VehicleData.autostand.get("MTVEHICLES_WIEKENS_" + license);
 
         if (ConfigModule.vehicleDataConfig.getHealth(license) == 0) { // The vehicle is broken
-            standMain.getWorld().spawnParticle(Particle.SMOKE_NORMAL, standMain.getLocation(), 2);
+            standMain.getWorld().spawnParticle(Particle.SMOKE, standMain.getLocation(), 2);
 
             if (!VehicleData.isVehicleDestroyed(license)) {
                 if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.EXPLODING_VEHICLE)) {
@@ -166,12 +163,13 @@ public class VehicleMovement {
             return;
         }
 
-        if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.HEADLIGHTS_ENABLED) && getServerVersion().isNewerOrEqualTo(ServerVersion.v1_17_R1)){headlightsEnabled = true;}
+        headlightsEnabled = (boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.HEADLIGHTS_ENABLED);
 
 
         schedulerRun(() -> {
             standSkin.teleport(new Location(standMain.getLocation().getWorld(), standMain.getLocation().getX(), standMain.getLocation().getY(), standMain.getLocation().getZ(), standMain.getLocation().getYaw(), standMain.getLocation().getPitch()));
-            if (DependencyModule.isDependencyEnabled(SoftDependency.WORLD_GUARD)){
+            VehicleUtils.updateAttachedVehicleVisual(license);
+            if (DependencyModule.isDependencyEnabled(SoftDependency.WORLD_GUARD) && shouldCheckRegions(standMain.getLocation())){
                 Set<String> newRegions = DependencyModule.worldGuard.getRegionNames(standMain.getLocation());
                 if (VehicleData.lastRegions.containsKey(license)){
                     Set<String> lastRegions = VehicleData.lastRegions.get(license);
@@ -235,9 +233,9 @@ public class VehicleMovement {
 
             // Horn
             if (ConfigModule.vehicleDataConfig.isHornEnabled(license) && steerIsJumping() && !isFalling) {
-                if (VehicleData.lastUsage.containsKey(player.getName())) lastUsed.set(VehicleData.lastUsage.get(player.getName()));
+                long lastUsed = VehicleData.lastUsage.getOrDefault(player.getName(), 0L);
 
-                if (System.currentTimeMillis() - lastUsed.get() >= Long.parseLong(ConfigModule.defaultConfig.get(DefaultConfig.Option.HORN_COOLDOWN).toString()) * 1000L) {
+                if (System.currentTimeMillis() - lastUsed >= Long.parseLong(ConfigModule.defaultConfig.get(DefaultConfig.Option.HORN_COOLDOWN).toString()) * 1000L) {
                     HornUseEvent api = new HornUseEvent(license);
                     api.setPlayer(player);
                     schedulerRun(api::call);
@@ -251,9 +249,9 @@ public class VehicleMovement {
 
             // Tank
             if (vehicleType.isTank() && steerIsJumping()) {
-                if (VehicleData.lastUsage.containsKey(player.getName())) lastUsed.set(VehicleData.lastUsage.get(player.getName()));
+                long lastUsed = VehicleData.lastUsage.getOrDefault(player.getName(), 0L);
 
-                if (System.currentTimeMillis() - lastUsed.get() >= Long.parseLong(ConfigModule.defaultConfig.get(DefaultConfig.Option.TANK_COOLDOWN).toString()) * 1000L) {
+                if (System.currentTimeMillis() - lastUsed >= Long.parseLong(ConfigModule.defaultConfig.get(DefaultConfig.Option.TANK_COOLDOWN).toString()) * 1000L) {
                     standMain.getWorld().playEffect(standMain.getLocation(), Effect.BLAZE_SHOOT, 1, 1);
                     standMain.getWorld().playEffect(standMain.getLocation(), Effect.GHAST_SHOOT, 1, 1);
                     standMain.getWorld().playEffect(standMain.getLocation(), Effect.WITHER_BREAK_BLOCK, 1, 1);
@@ -277,6 +275,23 @@ public class VehicleMovement {
             rotation();
             move();
         });
+    }
+
+    /**
+     * WorldGuard regions only change when the vehicle enters a different block.
+     * Avoid repeating region queries for stationary or slowly moving vehicles.
+     */
+    private boolean shouldCheckRegions(Location current) {
+        Location previous = VehicleData.lastRegionCheckLocation.get(license);
+        if (previous != null
+                && previous.getWorld() == current.getWorld()
+                && previous.getBlockX() == current.getBlockX()
+                && previous.getBlockY() == current.getBlockY()
+                && previous.getBlockZ() == current.getBlockZ()) {
+            return false;
+        }
+        VehicleData.lastRegionCheckLocation.put(license, current.clone());
+        return true;
     }
 
     /**
@@ -692,53 +707,8 @@ public class VehicleMovement {
      * @param seat ArmorStand of the seat
      * @param loc Location where the seat will be teleported to
      */
-    @VersionSpecific
     protected void teleportSeat(ArmorStand seat, Location loc){
-        try {
-            ServerVersion version = getServerVersion();
-            String craftEntityClassName = "org.bukkit.craftbukkit." + version.name() + ".entity.CraftEntity";
-            if(version.isNewerOrEqualTo(ServerVersion.v26_1)) {
-                craftEntityClassName = "org.bukkit.craftbukkit.entity.CraftEntity";
-            }
-            Class<?> craftEntityClass = Class.forName(craftEntityClassName);
-
-            Method getHandleMethod = craftEntityClass.getMethod("getHandle");
-            Object handle = getHandleMethod.invoke(seat);
-            
-            teleportSeat(handle, loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch());
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-    /**
-     * Get the String name of the method for teleporting an ArmorStand. Changes between versions.
-     * @return Teleport method's name as String.
-     */
-    @VersionSpecific
-    protected static String getTeleportMethod(){
-        if (getServerVersion().isNewerOrEqualTo(ServerVersion.v26_1)) return "absSnapTo";
-        else if (getServerVersion().isNewerOrEqualTo(ServerVersion.v1_18_R1)) return "a";
-        else return "setLocation";
-    }
-
-    /**
-     * Teleport a seat to a desired location. The seat must already be specified as a CraftBukkit Entity.
-     * @param seat Seat's ArmorStand as a CraftBukkit Entity
-     * @param x X-coordinate of the location
-     * @param y Y-coordinate of the location
-     * @param z Z-coordinate of the location
-     * @param yaw Yaw of the location
-     * @param pitch Pitch of the location
-     */
-    protected void teleportSeat(Object seat, double x, double y, double z, float yaw, float pitch){
-        schedulerRun(() -> {
-            try {
-                Method method = seat.getClass().getSuperclass().getSuperclass().getDeclaredMethod(getTeleportMethod(), double.class, double.class, double.class, float.class, float.class);
-                method.invoke(seat, x, y, z, yaw, pitch);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        });
+        schedulerRun(() -> seat.teleport(loc, TeleportFlag.EntityState.RETAIN_PASSENGERS));
     }
 
     /**
@@ -760,7 +730,7 @@ public class VehicleMovement {
             //Moving forwards when landing with no fuel - for more realistic movement.
             if (vehicleType.isAirplane() && isFalling && !block.equals(Material.AIR)){
                 putFrictionSpeed();
-                standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), 0.0, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+                setHorizontalVelocity(loc, 0.0);
                 return;
             }
 
@@ -772,14 +742,14 @@ public class VehicleMovement {
                 final double takeOffSpeed = ((double) ConfigModule.defaultConfig.get(DefaultConfig.Option.TAKE_OFF_SPEED) > 0) ? (double) ConfigModule.defaultConfig.get(DefaultConfig.Option.TAKE_OFF_SPEED) : 0.4;
                 if (vehicleType.isAirplane() && VehicleData.speed.get(license) < takeOffSpeed) {
                     double y = (isPassable(locBelow.getBlock())) ? -0.2 : 0;
-                    standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), y, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+                    setHorizontalVelocity(loc, y);
                     return;
                 }
 
                 putFuelUsage();
 
                 if (loc.getY() > (int) ConfigModule.defaultConfig.get(DefaultConfig.Option.MAX_FLYING_HEIGHT)) return;
-                standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), 0.2, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+                setHorizontalVelocity(loc, 0.2);
                 return;
             }
 
@@ -810,16 +780,16 @@ public class VehicleMovement {
             }
 
             putFuelUsage();
-            standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), -0.2, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+            setHorizontalVelocity(loc, -0.2);
             return;
         }
 
         if (vehicleType.isHover()) {
             if (block.equals(Material.AIR)) {
-                standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), -0.8, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+                setHorizontalVelocity(loc, -0.8);
                 return;
             }
-            standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), 0.00001, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+            setHorizontalVelocity(loc, 0.00001);
             return;
         }
 
@@ -829,32 +799,38 @@ public class VehicleMovement {
             }
 
             if (isPassable(locBelow.getBlock()) && !boatPassable(blockName)){
-                standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), -0.8, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+                setHorizontalVelocity(loc, -0.8);
                 return;
             }
 
-            standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), 0.01, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+            setHorizontalVelocity(loc, 0.01);
             return;
         }
 
         if (blockName.contains("WATER")) {
-            standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), -0.8, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+            setHorizontalVelocity(loc, -0.8);
             return;
         }
 
         if (isPassable(locBlockAhead.getBlock()) && isPassable(locBlockAheadAndBelow.getBlock())){
             if (isPassable(locBelow.getBlock())){
-                standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), -0.8, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+                setHorizontalVelocity(loc, -0.8);
                 return;
             }
 
             if (blockName.contains("CARPET")){
-                standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), -0.7375, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+                setHorizontalVelocity(loc, -0.7375);
                 return;
             }
         }
 
-        standMain.setVelocity(new Vector(loc.getDirection().multiply(VehicleData.speed.get(license)).getX(), 0.0, loc.getDirection().multiply(VehicleData.speed.get(license)).getZ()));
+        setHorizontalVelocity(loc, 0.0);
+    }
+
+    private void setHorizontalVelocity(Location location, double verticalVelocity) {
+        Vector velocity = location.getDirection().multiply(VehicleData.speed.getOrDefault(license, 0.0));
+        velocity.setY(verticalVelocity);
+        standMain.setVelocity(velocity);
     }
 
     /**
@@ -870,11 +846,7 @@ public class VehicleMovement {
         else VehicleData.fuel.put(license, newFuel);
     }
 
-    /**
-     * Check whether a block is passable. Method used because 1.12 does not have this method natively.
-     * @param block Checked block
-     * @return True if the checked block is passable.
-     */
+    /** Check whether a block is passable. */
     protected boolean isPassable(Block block){
         return block.isPassable();
     }
@@ -883,9 +855,27 @@ public class VehicleMovement {
      * Rotate and move the rotors accordingly.
      */
     protected void rotors() {
-        double xOffset = VehicleData.wiekenx.get("MTVEHICLES_WIEKENS_" + license);
-        double yOffset = VehicleData.wiekeny.get("MTVEHICLES_WIEKENS_" + license);
-        double zOffset = VehicleData.wiekenz.get("MTVEHICLES_WIEKENS_" + license);
+        if (standRotors == null || !standRotors.isValid()) return;
+
+        String bladeKey = "MTVEHICLES_WIEKENS_" + license;
+        Double xOffset = VehicleData.wiekenx.get(bladeKey);
+        Double yOffset = VehicleData.wiekeny.get(bladeKey);
+        Double zOffset = VehicleData.wiekenz.get(bladeKey);
+        if (xOffset == null || yOffset == null || zOffset == null) {
+            if (license.equals(invalidRotorDataLicense)) return;
+            if (VehicleUtils.loadRotorOffsets(license)) {
+                invalidRotorDataLicense = null;
+                xOffset = VehicleData.wiekenx.get(bladeKey);
+                yOffset = VehicleData.wiekeny.get(bladeKey);
+                zOffset = VehicleData.wiekenz.get(bladeKey);
+            } else {
+                invalidRotorDataLicense = license;
+                return;
+            }
+        }
+        // Rotors are visual only: invalid cosmetic data must never stop vehicle physics.
+        if (xOffset == null || yOffset == null || zOffset == null) return;
+
         final Location locvp = standMain.getLocation().clone();
         final Location fbvp = locvp.add(locvp.getDirection().setY(0).normalize().multiply(xOffset));
         final float zvp = (float) (fbvp.getZ() + zOffset * Math.sin(Math.toRadians(standRotors.getLocation().getYaw())));
@@ -927,41 +917,9 @@ public class VehicleMovement {
         return new Location(standMain.getWorld(), xvp, standMain.getLocation().getY() + yOffset, zvp, fbvp.getYaw(), fbvp.getPitch());
     }
 
-    /**
-     * Checked whether a player is jumping (got from the steering packet)
-     * @return True if player is jumping
-     */
+    /** @return whether the driver is holding jump. */
     protected boolean steerIsJumping(){
-        try {
-            ServerVersion version = getServerVersion();
-            Class<?> packetClass = packet.getClass();
-
-            if (version.isOlderOrEqualTo(ServerVersion.v1_21_R1)) {
-                String declaredMethod = "d";
-
-                if (version.isNewerOrEqualTo(ServerVersion.v1_20_R2) && version.isOlderThan(ServerVersion.v1_20_R4)) {
-                    declaredMethod = "e";
-                } else if (version.isNewerOrEqualTo(ServerVersion.v1_20_R4)) {
-                    declaredMethod = "f";
-                }
-                Method method = packetClass.getDeclaredMethod(declaredMethod);
-                return (Boolean) method.invoke(packet);
-            }
-
-            String inputMethod = "b";
-            String jumpMethod = "e";
-
-            if (version.isNewerOrEqualTo(ServerVersion.v26_1)) {
-                inputMethod = "input";
-                jumpMethod = "jump";
-            }
-
-            Object input = packetClass.getDeclaredMethod(inputMethod).invoke(packet);
-            return (boolean) input.getClass().getDeclaredMethod(jumpMethod).invoke(input);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return false;
+        return input.isJump();
     }
 
     /**
@@ -969,42 +927,8 @@ public class VehicleMovement {
      * @return Rotation from the packet
      */
     protected float steerGetXxa(){
-        try {
-            ServerVersion version = getServerVersion();
-            Class<?> packetClass = packet.getClass();
-
-            if (version.isOlderOrEqualTo(ServerVersion.v1_21_R1)) {
-                String declaredMethod = "b";
-
-                if (version.isNewerOrEqualTo(ServerVersion.v1_19_R3) && version.isOlderThan(ServerVersion.v1_20_R4)) {
-                    declaredMethod = "a";
-                }
-
-                Method method = packetClass.getDeclaredMethod(declaredMethod);
-                return (float) method.invoke(packet);
-            }
-
-            String inputMethod = "b";
-            String leftMethod = "c";
-            String rightMethod = "d";
-
-            if (version.isNewerOrEqualTo(ServerVersion.v26_1)) {
-                inputMethod = "input";
-                leftMethod = "left";
-                rightMethod = "right";
-            }
-
-            Object input = packetClass.getDeclaredMethod(inputMethod).invoke(packet);
-            if ((boolean) input.getClass().getDeclaredMethod(leftMethod).invoke(input)) {
-                return 1;
-            }
-            if ((boolean) input.getClass().getDeclaredMethod(rightMethod).invoke(input)) {
-                return -1;
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return 0;
+        if (input.isLeft() == input.isRight()) return 0.0F;
+        return input.isLeft() ? 1.0F : -1.0F;
     }
 
     /**
@@ -1012,44 +936,8 @@ public class VehicleMovement {
      * @return Movement from the packet
      */
     protected float steerGetZza(){
-        try {
-            ServerVersion version = getServerVersion();
-            Class<?> packetClass = packet.getClass();
-
-            if (version.isOlderOrEqualTo(ServerVersion.v1_21_R1)) {
-                String declaredMethod = "c";
-
-                if (version.isNewerOrEqualTo(ServerVersion.v1_20_R2) && version.isOlderThan(ServerVersion.v1_20_R4)) {
-                    declaredMethod = "d";
-                } else if (version.isNewerOrEqualTo(ServerVersion.v1_20_R4)) {
-                    declaredMethod = "e";
-                }
-
-                Method method = packetClass.getDeclaredMethod(declaredMethod);
-                return (float) method.invoke(packet);
-            }
-
-            String inputMethod = "b";
-            String forwardMethod = "a";
-            String backwardMethod = "b";
-
-            if (version.isNewerOrEqualTo(ServerVersion.v26_1)) {
-                inputMethod = "input";
-                forwardMethod = "forward";
-                backwardMethod = "backward";
-            }
-
-            Object input = packetClass.getDeclaredMethod(inputMethod).invoke(packet);
-            if ((boolean) input.getClass().getDeclaredMethod(forwardMethod).invoke(input)) {
-                return 1;
-            }
-            if ((boolean) input.getClass().getDeclaredMethod(backwardMethod).invoke(input)) {
-                return -1;
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return 0;
+        if (input.isForward() == input.isBackward()) return 0.0F;
+        return input.isForward() ? 1.0F : -1.0F;
     }
 
     /**
@@ -1057,13 +945,11 @@ public class VehicleMovement {
      * @param stand The tank's main ArmorStand
      * @param loc Location of where the particles should be spawned
      */
-    @VersionSpecific
     protected void spawnParticles(ArmorStand stand, Location loc){
-        stand.getWorld().spawnParticle(Particle.EXPLOSION_LARGE, loc, 2);
-        stand.getWorld().spawnParticle(Particle.EXPLOSION_NORMAL, loc, 2);
-        stand.getWorld().spawnParticle(Particle.FIREWORKS_SPARK, loc, 5);
-        if (!getServerVersion().isOlderOrEqualTo(ServerVersion.v1_13_R2))
-            stand.getWorld().spawnParticle(Particle.CAMPFIRE_COSY_SMOKE, loc, 5);
+        stand.getWorld().spawnParticle(Particle.EXPLOSION_EMITTER, loc, 2);
+        stand.getWorld().spawnParticle(Particle.EXPLOSION, loc, 2);
+        stand.getWorld().spawnParticle(Particle.FIREWORK, loc, 5);
+        stand.getWorld().spawnParticle(Particle.CAMPFIRE_COSY_SMOKE, loc, 5);
     }
 
     /**

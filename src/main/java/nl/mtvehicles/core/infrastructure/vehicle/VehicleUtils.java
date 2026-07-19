@@ -9,26 +9,31 @@ import nl.mtvehicles.core.infrastructure.enums.InventoryTitle;
 import nl.mtvehicles.core.infrastructure.enums.Message;
 import nl.mtvehicles.core.infrastructure.enums.RegionAction;
 import nl.mtvehicles.core.infrastructure.enums.VehicleType;
-import nl.mtvehicles.core.infrastructure.models.MTVConfig;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
 import nl.mtvehicles.core.infrastructure.utils.*;
 import org.bukkit.*;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.util.EulerAngle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Useful methods for vehicles
  * @see Vehicle
  */
 public final class VehicleUtils {
+
+    private static final String ATTACHED_VISUAL_PREFIX = "MTVATTACHMENT_";
+    private static final Map<String, AttachedVehicleVisual> attachedVehicleVisuals = new HashMap<>();
 
     /**
      * A private constructor - makes this a "static class"
@@ -51,31 +56,47 @@ public final class VehicleUtils {
     public static void spawnVehicle(String licensePlate, Location location) throws IllegalArgumentException {
         if (!existsByLicensePlate(licensePlate)) throw new IllegalArgumentException("Vehicle does not exists.");
 
+        Vehicle vehicle = getVehicle(licensePlate);
+        if (vehicle == null) throw new IllegalArgumentException("Vehicle configuration could not be resolved.");
+        List<Map<String, Double>> seats = vehicle.getSeats();
+        if (seats.isEmpty()) throw new IllegalArgumentException("Vehicle has no configured driver seat.");
+        Map<String, Double> mainSeat = seats.getFirst();
+        Location locationMainSeat = location.clone().add(mainSeat.get("x"), mainSeat.get("y"), mainSeat.get("z"));
+
+        ItemStack skinItem = getVehicleSkinItem(licensePlate);
+        if (skinItem == null) {
+            throw new IllegalArgumentException("Could not resolve the configured vehicle skin.");
+        }
+
+        List<Entity> existingComponents = findVehicleEntities(licensePlate, null, null);
+        boolean alreadySpawned = existingComponents.stream()
+                .anyMatch(entity -> ("MTVEHICLES_MAINSEAT_" + licensePlate).equals(entity.getCustomName()));
+        if (alreadySpawned) throw new IllegalArgumentException("Vehicle is already spawned.");
+        if (!existingComponents.isEmpty()) {
+            existingComponents.forEach(Entity::remove);
+            VehicleData.clearRuntimeData(licensePlate, true);
+            Main.logWarning("Removed " + existingComponents.size() + " incomplete entity component(s) before spawning "
+                    + licensePlate + '.');
+        }
+
         ArmorStand standSkin = location.getWorld().spawn(location, ArmorStand.class);
         allowTicking(standSkin);
         standSkin.setVisible(false);
         standSkin.setCustomName("MTVEHICLES_SKIN_" + licensePlate);
-        standSkin.getEquipment().setHelmet(
-                ItemUtils.getVehicleItem(
-                        ItemUtils.getMaterial(ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString()),
-                        (int) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_DAMAGE),
-                        false,
-                        ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.NAME).toString(),
-                        licensePlate));
+        standSkin.getEquipment().setHelmet(skinItem);
 
         ArmorStand standMain = location.getWorld().spawn(location, ArmorStand.class);
         standMain.setVisible(false);
         standMain.setCustomName("MTVEHICLES_MAIN_" + licensePlate);
 
-        Vehicle vehicle = getVehicle(licensePlate);
-
-        List<Map<String, Double>> seats = (List<Map<String, Double>>) vehicle.getVehicleData().get("seats");
-        Map<String, Double> mainSeat = seats.get(0);
-        Location locationMainSeat = new Location(location.getWorld(), location.getX() + mainSeat.get("x"), location.getY() + mainSeat.get("y"), location.getZ() + mainSeat.get("z"));
         ArmorStand standMainSeat = locationMainSeat.getWorld().spawn(locationMainSeat, ArmorStand.class);
         standMainSeat.setCustomName("MTVEHICLES_MAINSEAT_" + licensePlate);
         standMainSeat.setGravity(false);
         standMainSeat.setVisible(false);
+
+        VehicleData.autostand.put("MTVEHICLES_SKIN_" + licensePlate, standSkin);
+        VehicleData.autostand.put("MTVEHICLES_MAIN_" + licensePlate, standMain);
+        VehicleData.autostand.put("MTVEHICLES_MAINSEAT_" + licensePlate, standMainSeat);
 
         if (ConfigModule.vehicleDataConfig.getType(licensePlate).isBoat()){
             standMain.setGravity(false);
@@ -83,28 +104,217 @@ public final class VehicleUtils {
         }
 
         if (ConfigModule.vehicleDataConfig.getType(licensePlate).isHelicopter()) {
-            List<Map<String, Double>> helicopterBlades = (List<Map<String, Double>>) vehicle.getVehicleData().get("wiekens");
-            Map<?, ?> blade = helicopterBlades.get(0);
-            Location locationBlade = new Location(location.getWorld(), location.getX() + (double) blade.get("z"), location.getY() + (double) blade.get("y"), location.getZ() + (double) blade.get("x"));
-            ArmorStand standRotors = locationBlade.getWorld().spawn(locationBlade, ArmorStand.class);
-            standRotors.setCustomName("MTVEHICLES_WIEKENS_" + licensePlate);
-            standRotors.setGravity(false);
-            standRotors.setVisible(false);
+            Map<?, ?> blade = getRotorDefinition(vehicle);
+            if (blade != null && storeRotorOffsets(licensePlate, blade)) {
+                String bladeKey = "MTVEHICLES_WIEKENS_" + licensePlate;
+                Location locationBlade = location.clone().add(
+                        VehicleData.wiekenz.get(bladeKey),
+                        VehicleData.wiekeny.get(bladeKey),
+                        VehicleData.wiekenx.get(bladeKey));
+                ArmorStand standRotors = locationBlade.getWorld().spawn(locationBlade, ArmorStand.class);
+                standRotors.setCustomName(bladeKey);
+                standRotors.setGravity(false);
+                standRotors.setVisible(false);
+                VehicleData.autostand.put(bladeKey, standRotors);
 
-            if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.HELICOPTER_BLADES_ALWAYS_ON)) {
-                ItemStack rotor = (new ItemFactory(Material.getMaterial("DIAMOND_HOE"))).setDurability((short) 1058).setName(TextUtils.colorize("&6Wieken")).setNBT("mtvehicles.kenteken", licensePlate).toItemStack();
-                ItemMeta itemMeta = rotor.getItemMeta();
-                List<String> lore = new ArrayList<>();
-                lore.add(TextUtils.colorize("&a"));
-                lore.add(TextUtils.colorize("&a" + licensePlate));
-                lore.add(TextUtils.colorize("&a"));
-                itemMeta.setLore(lore);
-                itemMeta.setUnbreakable(true);
-                rotor.setItemMeta(itemMeta);
-
-                allowTicking(standRotors);
-                standRotors.setHelmet((ItemStack) blade.get("item"));
+                if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.HELICOPTER_BLADES_ALWAYS_ON)) {
+                    allowTicking(standRotors);
+                    if (blade.get("item") instanceof ItemStack) {
+                        standRotors.setHelmet((ItemStack) blade.get("item"));
+                    }
+                }
             }
+        }
+    }
+
+    private static ItemStack getVehicleSkinItem(String licensePlate) {
+        return ItemUtils.getVehicleItem(
+                ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString(),
+                (int) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_DAMAGE),
+                false,
+                ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.NAME).toString(),
+                licensePlate);
+    }
+
+    /**
+     * Creates a non-interactive copy of a vehicle model and keeps it attached to another vehicle.
+     * This is intended for integrations such as tow-truck flatbeds: the source vehicle remains a
+     * normal MTVehicles record, while only its configured skin is rendered on the host vehicle.
+     *
+     * @param hostPlate vehicle that carries the visual
+     * @param sourcePlate vehicle whose skin must be rendered
+     * @param forwardOffset offset along the host's forward direction (negative is behind)
+     * @param verticalOffset offset above the host's main armor stand
+     * @param sidewaysOffset lateral offset, using MTVehicles' seat coordinate convention
+     * @param yawOffset additional model rotation in degrees
+     * @return {@code true} when the visual was created
+     */
+    public static boolean attachVehicleVisual(String hostPlate, String sourcePlate,
+                                              double forwardOffset, double verticalOffset,
+                                              double sidewaysOffset, float yawOffset) {
+        return attachVehicleVisual(hostPlate, sourcePlate, forwardOffset, verticalOffset,
+                sidewaysOffset, yawOffset, 1.0D);
+    }
+
+    /**
+     * Creates a scaled, non-interactive copy of a vehicle model attached to another vehicle.
+     * The scale is applied through Bukkit's entity scale attribute, available on Paper 1.21+.
+     *
+     * @param hostPlate vehicle that carries the visual
+     * @param sourcePlate vehicle whose skin must be rendered
+     * @param forwardOffset offset along the host's forward direction (negative is behind)
+     * @param verticalOffset offset above the host's main armor stand
+     * @param sidewaysOffset lateral offset, using MTVehicles' seat coordinate convention
+     * @param yawOffset additional model rotation in degrees
+     * @param scale visual scale; values are clamped between {@code 0.25} and {@code 2.0}
+     * @return {@code true} when the visual was created
+     */
+    public static boolean attachVehicleVisual(String hostPlate, String sourcePlate,
+                                              double forwardOffset, double verticalOffset,
+                                              double sidewaysOffset, float yawOffset, double scale) {
+        return attachVehicleVisual(hostPlate, sourcePlate, forwardOffset, verticalOffset,
+                sidewaysOffset, yawOffset, scale, 0.0D);
+    }
+
+    /**
+     * Creates a scaled and pitched vehicle visual. Negative pitch values raise the model's front,
+     * allowing a loaded vehicle to follow a tow-truck ramp instead of remaining horizontal.
+     *
+     * @param hostPlate vehicle that carries the visual
+     * @param sourcePlate vehicle whose skin must be rendered
+     * @param forwardOffset offset along the host's forward direction (negative is behind)
+     * @param verticalOffset offset above the host's main armor stand
+     * @param sidewaysOffset lateral offset, using MTVehicles' seat coordinate convention
+     * @param yawOffset additional horizontal model rotation in degrees
+     * @param scale visual scale; values are clamped between {@code 0.25} and {@code 2.0}
+     * @param pitchOffset vertical model inclination; values are clamped between {@code -45} and {@code 45}
+     * @return {@code true} when the visual was created
+     */
+    public static boolean attachVehicleVisual(String hostPlate, String sourcePlate,
+                                              double forwardOffset, double verticalOffset,
+                                              double sidewaysOffset, float yawOffset, double scale,
+                                              double pitchOffset) {
+        if (!existsByLicensePlate(hostPlate) || !existsByLicensePlate(sourcePlate)) return false;
+
+        String key = attachmentKey(hostPlate);
+        AttachedVehicleVisual current = attachedVehicleVisuals.get(key);
+        if (current != null && current.stand.isValid()) return false;
+        attachedVehicleVisuals.remove(key);
+
+        Location hostLocation = getLocation(hostPlate);
+        if (hostLocation == null || hostLocation.getWorld() == null) return false;
+        ItemStack skinItem = getVehicleSkinItem(sourcePlate);
+        if (skinItem == null) return false;
+
+        ArmorStand stand = hostLocation.getWorld().spawn(hostLocation, ArmorStand.class);
+        allowTicking(stand);
+        stand.setVisible(false);
+        stand.setGravity(false);
+        stand.setBasePlate(false);
+        stand.setInvulnerable(true);
+        stand.setCollidable(false);
+        stand.setPersistent(false);
+        stand.setSilent(true);
+        stand.setCustomName(ATTACHED_VISUAL_PREFIX + hostPlate);
+        stand.setCustomNameVisible(false);
+        stand.getEquipment().setHelmet(skinItem);
+        double safePitch = Double.isFinite(pitchOffset)
+                ? Math.max(-45.0D, Math.min(45.0D, pitchOffset))
+                : 0.0D;
+        stand.setHeadPose(new EulerAngle(Math.toRadians(safePitch), 0.0D, 0.0D));
+
+        double safeScale = Double.isFinite(scale)
+                ? Math.max(0.25D, Math.min(2.0D, scale))
+                : 1.0D;
+        if (Math.abs(safeScale - 1.0D) > 0.0001D && !applyEntityScale(stand, safeScale)) {
+            stand.remove();
+            return false;
+        }
+
+        AttachedVehicleVisual visual = new AttachedVehicleVisual(
+                hostPlate, sourcePlate, stand, forwardOffset, verticalOffset, sidewaysOffset, yawOffset);
+        attachedVehicleVisuals.put(key, visual);
+        updateAttachedVehicleVisual(hostPlate);
+        return true;
+    }
+
+    private static boolean applyEntityScale(ArmorStand stand, double scale) {
+        AttributeInstance attribute = stand.getAttribute(Attribute.SCALE);
+        if (attribute == null) return false;
+        attribute.setBaseValue(scale);
+        return true;
+    }
+
+    /** Removes the visual attached to the given host vehicle, if present. */
+    public static boolean removeAttachedVehicleVisual(String hostPlate) {
+        AttachedVehicleVisual visual = attachedVehicleVisuals.remove(attachmentKey(hostPlate));
+        if (visual == null) return false;
+        if (visual.stand.isValid()) visual.stand.remove();
+        return true;
+    }
+
+    /** Returns whether a valid visual is currently attached to the host vehicle. */
+    public static boolean hasAttachedVehicleVisual(String hostPlate) {
+        AttachedVehicleVisual visual = attachedVehicleVisuals.get(attachmentKey(hostPlate));
+        if (visual == null) return false;
+        if (visual.stand.isValid()) return true;
+        attachedVehicleVisuals.remove(attachmentKey(hostPlate));
+        return false;
+    }
+
+    /** Repositions an attached visual. Called by the movement engine after its host moves. */
+    public static void updateAttachedVehicleVisual(String hostPlate) {
+        String key = attachmentKey(hostPlate);
+        AttachedVehicleVisual visual = attachedVehicleVisuals.get(key);
+        if (visual == null) return;
+        if (!visual.stand.isValid()) {
+            attachedVehicleVisuals.remove(key);
+            return;
+        }
+
+        Location host = getLocation(visual.hostPlate);
+        if (host == null || host.getWorld() == null) return;
+        Location forward = host.clone().add(host.getDirection().setY(0).normalize().multiply(visual.forwardOffset));
+        double yawRadians = Math.toRadians(forward.getYaw());
+        double x = forward.getX() + visual.sidewaysOffset * Math.cos(yawRadians);
+        double z = forward.getZ() + visual.sidewaysOffset * Math.sin(yawRadians);
+        Location destination = new Location(host.getWorld(), x, host.getY() + visual.verticalOffset, z,
+                host.getYaw() + visual.yawOffset, host.getPitch());
+        visual.stand.teleport(destination);
+    }
+
+    /** Removes every transient integration visual, used during plugin shutdown/reload. */
+    public static void removeAllAttachedVehicleVisuals() {
+        for (AttachedVehicleVisual visual : new ArrayList<>(attachedVehicleVisuals.values())) {
+            if (visual.stand.isValid()) visual.stand.remove();
+        }
+        attachedVehicleVisuals.clear();
+    }
+
+    private static String attachmentKey(String hostPlate) {
+        return hostPlate.toUpperCase(Locale.ROOT);
+    }
+
+    private static final class AttachedVehicleVisual {
+        private final String hostPlate;
+        @SuppressWarnings("unused")
+        private final String sourcePlate;
+        private final ArmorStand stand;
+        private final double forwardOffset;
+        private final double verticalOffset;
+        private final double sidewaysOffset;
+        private final float yawOffset;
+
+        private AttachedVehicleVisual(String hostPlate, String sourcePlate, ArmorStand stand,
+                                      double forwardOffset, double verticalOffset,
+                                      double sidewaysOffset, float yawOffset) {
+            this.hostPlate = hostPlate;
+            this.sourcePlate = sourcePlate;
+            this.stand = stand;
+            this.forwardOffset = forwardOffset;
+            this.verticalOffset = verticalOffset;
+            this.sidewaysOffset = sidewaysOffset;
+            this.yawOffset = yawOffset;
         }
     }
 
@@ -177,65 +387,167 @@ public final class VehicleUtils {
     }
 
     /**
-     * Create a vehicle and get its item by UUID (UUID may be found in vehicles.yml)
+     * Prepare a vehicle and its item without registering it. The database row
+     * is created only after {@link PreparedVehicle#deliverTo(Player)} succeeds.
      * @param owner Vehicle's owner
      * @param uuid Vehicle's UUID (UUID may be found in vehicles.yml)
-     * @return Null if vehicle was not found by given UUID; otherwise, vehicle item
+     * @return Null if the UUID is unknown; otherwise, a pending delivery
      */
-    public static ItemStack createAndGetItemByUUID(OfflinePlayer owner, String uuid) {
+    public static PreparedVehicle prepareVehicleByUUID(OfflinePlayer owner, String uuid) {
+        if (owner == null || uuid == null) return null;
         List<Map<?, ?>> vehicles = ConfigModule.vehiclesConfig.getVehicles();
         for (Map<?, ?> configVehicle : vehicles) {
             List<Map<?, ?>> skins = (List<Map<?, ?>>) configVehicle.get("cars");
             for (Map<?, ?> skin : skins) {
                 if (skin.get("uuid") != null) {
                     if (skin.get("uuid").equals(uuid)) {
-                        String nbtVal;
-                        if (skin.get("nbtValue") == null) {
-                            nbtVal = "null";
-                        } else {
-                            nbtVal = skin.get("nbtValue").toString();
+                        String licensePlate = ConfigModule.vehicleDataConfig.reserveNextLicensePlate();
+                        ItemStack item;
+                        try {
+                            item = ItemUtils.getVehicleItem(
+                                    skin.get("SkinItem").toString(),
+                                    (int) skin.get("itemDamage"),
+                                    false,
+                                    (String) skin.get("name"),
+                                    licensePlate,
+                                    "mtcustom",
+                                    skin.get("nbtValue"));
+                        } catch (RuntimeException exception) {
+                            ConfigModule.vehicleDataConfig.releaseLicensePlateReservation(licensePlate);
+                            throw exception;
+                        }
+                        if (item == null) {
+                            ConfigModule.vehicleDataConfig.releaseLicensePlateReservation(licensePlate);
+                            return null;
                         }
 
-                        ItemStack item = ItemUtils.getVehicleItem(ItemUtils.getMaterial(skin.get("SkinItem").toString()), (int) skin.get("itemDamage"), ((String) skin.get("name")), "mtcustom", nbtVal);
-                        NBTItem nbt = new NBTItem(item);
-                        final String licensePlate = nbt.getString("mtvehicles.kenteken");
-
-                        Vehicle vehicle = new Vehicle(
-                                null,
-                                licensePlate,
-                                (String) skin.get("name"),
-                                VehicleType.valueOf((String) configVehicle.get("vehicleType")),
-                                false,
-                                (int) skin.get("itemDamage"),
-                                (String) skin.get("SkinItem"),
-                                false,
-                                (boolean) configVehicle.get("hornEnabled"),
-                                (double) configVehicle.get("maxHealth"),
-                                (boolean) configVehicle.get("benzineEnabled"),
-                                100,
-                                0.01,
-                                (boolean) configVehicle.get("kofferbakEnabled"),
-                                1,
-                                null,
-                                (double) configVehicle.get("acceleratieSpeed"),
-                                (double) configVehicle.get("maxSpeed"),
-                                (double) configVehicle.get("maxSpeedBackwards"),
-                                (double) configVehicle.get("brakingSpeed"),
-                                (double) configVehicle.get("aftrekkenSpeed"),
-                                (int)configVehicle.get("rotateSpeed"),
-                                owner.getUniqueId(),
-                                null,
-                                null,
-                                (double) skin.get("price"),
-                                (String) skin.get("nbtValue")
-                        );
-                        vehicle.save();
-                        return item;
+                        try {
+                            Vehicle vehicle = new Vehicle(
+                                    null,
+                                    licensePlate,
+                                    (String) skin.get("name"),
+                                    VehicleType.valueOf((String) configVehicle.get("vehicleType")),
+                                    false,
+                                    (int) skin.get("itemDamage"),
+                                    (String) skin.get("SkinItem"),
+                                    false,
+                                    (boolean) configVehicle.get("hornEnabled"),
+                                    (double) configVehicle.get("maxHealth"),
+                                    (boolean) configVehicle.get("benzineEnabled"),
+                                    100,
+                                    0.01,
+                                    (boolean) configVehicle.get("kofferbakEnabled"),
+                                    1,
+                                    null,
+                                    (double) configVehicle.get("acceleratieSpeed"),
+                                    (double) configVehicle.get("maxSpeed"),
+                                    (double) configVehicle.get("maxSpeedBackwards"),
+                                    (double) configVehicle.get("brakingSpeed"),
+                                    (double) configVehicle.get("aftrekkenSpeed"),
+                                    (int) configVehicle.get("rotateSpeed"),
+                                    owner.getUniqueId(),
+                                    null,
+                                    null,
+                                    (double) skin.get("price"),
+                                    skin.get("nbtValue") == null ? null : skin.get("nbtValue").toString()
+                            );
+                            return new PreparedVehicle(item, vehicle);
+                        } catch (RuntimeException exception) {
+                            ConfigModule.vehicleDataConfig.releaseLicensePlateReservation(licensePlate);
+                            throw exception;
+                        }
                     }
                 }
             }
         }
         return null;
+    }
+
+    /**
+     * Register a new identity only after its item is verifiably present in the
+     * owner's inventory. This prevents failed deliveries from creating rows.
+     */
+    public static boolean registerDeliveredVehicle(Player holder, ItemStack deliveredItem, Vehicle vehicle) {
+        if (holder == null || deliveredItem == null || vehicle == null || vehicle.getOwnerUUID() == null) return false;
+        String license = getLicensePlate(deliveredItem);
+        if (license == null || license.isBlank() || !license.equals(vehicle.getLicensePlate())) return false;
+        if (!holder.getUniqueId().equals(vehicle.getOwnerUUID()) || existsByLicensePlate(license)) return false;
+        if (!hasVehicleItem(holder, license)) return false;
+
+        try {
+            vehicle.saveNew();
+            return true;
+        } catch (RuntimeException exception) {
+            Main.instance.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Could not register delivered vehicle " + license, exception);
+            return false;
+        }
+    }
+
+    private static boolean hasVehicleItem(Player player, String license) {
+        for (ItemStack content : player.getInventory().getStorageContents()) {
+            if (content != null && license.equals(getLicensePlate(content))) return true;
+        }
+        return false;
+    }
+
+    private static void removeVehicleItem(Player player, String license) {
+        ItemStack[] contents = player.getInventory().getStorageContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack content = contents[slot];
+            if (content != null && license.equals(getLicensePlate(content))) {
+                player.getInventory().setItem(slot, null);
+                return;
+            }
+        }
+    }
+
+    /** Deliver the item first and roll it back if identity registration fails. */
+    public static boolean deliverNewVehicle(Player recipient, ItemStack item, Vehicle vehicle) {
+        if (recipient == null || item == null || vehicle == null) {
+            if (vehicle != null) ConfigModule.vehicleDataConfig.releaseLicensePlateReservation(vehicle.getLicensePlate());
+            return false;
+        }
+        ItemStack delivered = item.clone();
+        if (!recipient.getInventory().addItem(delivered).isEmpty()) {
+            ConfigModule.vehicleDataConfig.releaseLicensePlateReservation(vehicle.getLicensePlate());
+            return false;
+        }
+        if (registerDeliveredVehicle(recipient, delivered, vehicle)) return true;
+        removeVehicleItem(recipient, vehicle.getLicensePlate());
+        ConfigModule.vehicleDataConfig.releaseLicensePlateReservation(vehicle.getLicensePlate());
+        return false;
+    }
+
+    public static final class PreparedVehicle {
+        private final ItemStack item;
+        private final Vehicle vehicle;
+        private final AtomicBoolean completed = new AtomicBoolean();
+
+        private PreparedVehicle(ItemStack item, Vehicle vehicle) {
+            this.item = item;
+            this.vehicle = vehicle;
+        }
+
+        public ItemStack item() {
+            return item;
+        }
+
+        public Vehicle vehicle() {
+            return vehicle;
+        }
+
+        public boolean deliverTo(Player recipient) {
+            if (!completed.compareAndSet(false, true)) return false;
+            return deliverNewVehicle(recipient, item, vehicle);
+        }
+
+        /** Release this pending identity when an integration decides not to deliver it. */
+        public void cancel() {
+            if (completed.compareAndSet(false, true)) {
+                ConfigModule.vehicleDataConfig.releaseLicensePlateReservation(vehicle.getLicensePlate());
+            }
+        }
     }
 
     /**
@@ -290,7 +602,7 @@ public final class VehicleUtils {
     }
 
     /**
-     * Get a vehicle item by UUID. <b>Does not create a new vehicle - just for aesthetic purposes.</b> (Otherwise, use {@link #createAndGetItemByUUID(OfflinePlayer, String)})
+     * Get a vehicle item by UUID. <b>Does not create a new vehicle - just for aesthetic purposes.</b>
      * @param carUUID Vehicle's UUID (UUID may be found in vehicles.yml)
      * @return The vehicle item - just aesthetic (null if UUID is not found)
      *
@@ -304,7 +616,10 @@ public final class VehicleUtils {
                 if (skin.get("uuid") != null) {
                     if (skin.get("uuid").equals(carUUID)) {
                         if (skin.get("uuid") != null) {
-                            ItemStack is = ItemUtils.getVehicleItem(ItemUtils.getMaterial(skin.get("SkinItem").toString()), (int) skin.get("itemDamage"), ((String) skin.get("name")));
+                            ItemStack is = ItemUtils.getMenuVehicle(
+                                    skin.get("SkinItem").toString(),
+                                    (int) skin.get("itemDamage"),
+                                    (String) skin.get("name"));
                             matchedVehicles.add(configVehicle);
                             return is;
                         }
@@ -321,7 +636,44 @@ public final class VehicleUtils {
      * @return True if the entity is a vehicle
      */
     public static boolean isVehicle(Entity entity){
-        return entity.getCustomName() != null && entity instanceof ArmorStand && entity.getCustomName().contains("MTVEHICLES");
+        return entity instanceof ArmorStand
+                && entity.getCustomName() != null
+                && entity.getCustomName().startsWith("MTVEHICLES_");
+    }
+
+    /**
+     * Finds the closest spawned MTVehicles model around a location without exposing or deleting
+     * unrelated armor stands. Distance is spherical even though Bukkit returns a bounding box.
+     *
+     * @param origin center of the search
+     * @param radius maximum search radius, clamped between {@code 0.1} and {@code 32} blocks
+     * @return closest license plate, or {@code null} when no spawned vehicle is in range
+     */
+    @Nullable
+    public static String getNearestVehicleLicensePlate(Location origin, double radius) {
+        if (origin == null || origin.getWorld() == null || !Double.isFinite(radius)
+                || !Double.isFinite(origin.getX()) || !Double.isFinite(origin.getY())
+                || !Double.isFinite(origin.getZ())) return null;
+        double safeRadius = Math.max(0.1D, Math.min(32.0D, radius));
+        double radiusSquared = safeRadius * safeRadius;
+        String closestPlate = null;
+        double closestDistance = Double.MAX_VALUE;
+
+        for (Entity entity : origin.getWorld().getNearbyEntities(
+                origin, safeRadius, safeRadius, safeRadius)) {
+            if (!isVehicle(entity)) continue;
+            String plate = getLicensePlate(entity);
+            if (plate == null || plate.isEmpty() || !existsByLicensePlate(plate)) continue;
+            double distance = entity.getLocation().distanceSquared(origin);
+            if (distance > radiusSquared) continue;
+            if (distance < closestDistance
+                    || (Math.abs(distance - closestDistance) < 0.0001D
+                    && (closestPlate == null || plate.compareToIgnoreCase(closestPlate) < 0))) {
+                closestPlate = plate;
+                closestDistance = distance;
+            }
+        }
+        return closestPlate;
     }
 
     /**
@@ -332,15 +684,9 @@ public final class VehicleUtils {
      */
     @Nullable
     public static Player getCurrentDriver(String licensePlate){
-        Player driver = null;
-        for (World world : Bukkit.getServer().getWorlds()) {
-            for (Entity entity : world.getEntities()) {
-                if (entity.getCustomName() != null && entity.getCustomName().contains("MAINSEAT_" + licensePlate)) {
-                    driver = (Player) entity.getPassenger();
-                }
-            }
-        }
-        return driver;
+        ArmorStand driverSeat = VehicleData.autostand2.get(licensePlate);
+        if (driverSeat == null || !driverSeat.isValid()) return null;
+        return driverSeat.getPassenger() instanceof Player ? (Player) driverSeat.getPassenger() : null;
     }
 
     /**
@@ -351,10 +697,9 @@ public final class VehicleUtils {
     public static String getLicensePlate(@Nullable Entity entity){
         if (entity == null) return null;
         final String name = entity.getCustomName();
-        if (name.split("_").length > 1) {
-            return name.split("_")[2];
-        }
-        return null;
+        if (name == null) return null;
+        String[] parts = name.split("_", 3);
+        return parts.length == 3 ? parts[2] : null;
     }
 
     /**
@@ -419,11 +764,11 @@ public final class VehicleUtils {
                     if (skin.get("SkinItem").equals(vehicleData.get(VehicleDataConfig.Option.SKIN_ITEM.getPath()))) {
                         if (skin.get("nbtValue") != null) {
                             if (skin.get("nbtValue").equals(vehicleData.get(VehicleDataConfig.Option.NBT_VALUE.getPath()))) {
-                                matchedVehicles.add(configVehicle);
+                                matchedVehicles.add(mergeVehicleDefinition(configVehicle, skin));
                                 price = (double) skin.get("price");
                             }
                         } else {
-                            matchedVehicles.add(configVehicle);
+                            matchedVehicles.add(mergeVehicleDefinition(configVehicle, skin));
                             price = (double) skin.get("price");
                         }
                     }
@@ -465,6 +810,15 @@ public final class VehicleUtils {
         );
     }
 
+    /** Skin-level FDO options override the parent vehicle definition when present. */
+    private static Map<?, ?> mergeVehicleDefinition(Map<?, ?> vehicleDefinition, Map<?, ?> skinDefinition) {
+        Map<Object, Object> merged = new LinkedHashMap<>();
+        merged.putAll(vehicleDefinition);
+        if (skinDefinition.containsKey("fdo")) merged.put("fdo", skinDefinition.get("fdo"));
+        if (skinDefinition.containsKey("sirenType")) merged.put("sirenType", skinDefinition.get("sirenType"));
+        return merged;
+    }
+
 
     /**
      * Check whether this vehicle exists in the database (vehicleData.yml)
@@ -472,7 +826,7 @@ public final class VehicleUtils {
      * @return True if vehicle is in the database (vehicleData.yml)
      */
     public static boolean existsByLicensePlate(String licensePlate) {
-        return ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM) != null;
+        return ConfigModule.vehicleDataConfig.containsLicensePlate(licensePlate);
     }
 
     /**
@@ -521,7 +875,6 @@ public final class VehicleUtils {
             }
 
             if (VehicleUtils.getVehicle(license).isOwner(p) || p.hasPermission("mtvehicles.kofferbak")) {
-                ConfigModule.configList.forEach(MTVConfig::reload);
                 Inventory inv = Bukkit.createInventory(null, (int) ConfigModule.vehicleDataConfig.get(license, VehicleDataConfig.Option.TRUNK_ROWS) * 9, InventoryTitle.VEHICLE_TRUNK.getStringTitle());
 
                 if (ConfigModule.vehicleDataConfig.get(license, VehicleDataConfig.Option.TRUNK_DATA) != null) {
@@ -599,15 +952,18 @@ public final class VehicleUtils {
      * @param player Player
      */
     public static void pickupVehicle(String license, Player player) {
+        pickupVehicle(license, player, null);
+    }
+
+    /**
+     * Pick up a vehicle using a clicked component as a local lookup anchor.
+     * This avoids scanning every loaded entity during normal player interaction.
+     */
+    public static void pickupVehicle(String license, Player player, @Nullable Entity anchor) {
         Vehicle vehicle = getVehicle(license);
+        List<Entity> components = findVehicleEntities(license, anchor, anchor == null ? null : anchor.getWorld());
         if (vehicle == null) {
-            for (World world : Bukkit.getServer().getWorlds()) {
-                for (Entity entity : world.getEntities()) {
-                    if (entity.getCustomName() != null && entity.getCustomName().contains(license)) {
-                        entity.remove();
-                    }
-                }
-            }
+            components.forEach(Entity::remove);
             ConfigModule.messagesConfig.sendMessage(player, Message.VEHICLE_NOT_FOUND);
             return;
         }
@@ -619,26 +975,29 @@ public final class VehicleUtils {
         }
 
         if (vehicle.isOwner(player) && !((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.CAR_PICKUP)) || player.hasPermission("mtvehicles.oppakken")) {
-            for (World world : Bukkit.getServer().getWorlds()) {
-                for (Entity entity : world.getEntities()) {
-                    if (entity.getCustomName() != null && entity.getCustomName().contains(license)) {
-                        ArmorStand test = (ArmorStand) entity;
-                        if (test.getCustomName().contains("MTVEHICLES_SKIN_" + license)) {
-                            for (Player trunkViewer : VehicleData.getTrunkViewers(license)){
-                                trunkViewer.closeInventory();
-                            }
-                            if (!TextUtils.checkInvFull(player)) {
-                                player.getInventory().addItem(test.getHelmet());
-                                player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_PICKUP).replace("%p%", vehicle.getOwnerName())));
-                            } else {
-                                ConfigModule.messagesConfig.sendMessage(player, Message.INVENTORY_FULL);
-                                return;
-                            }
-                        }
-                        test.remove();
-                    }
-                }
+            ArmorStand skin = components.stream()
+                    .filter(entity -> ("MTVEHICLES_SKIN_" + license).equals(entity.getCustomName()))
+                    .map(entity -> (ArmorStand) entity)
+                    .findFirst()
+                    .orElse(null);
+            if (skin == null) {
+                ConfigModule.messagesConfig.sendMessage(player, Message.VEHICLE_NOT_FOUND);
+                return;
             }
+
+            if (TextUtils.checkInvFull(player)) {
+                ConfigModule.messagesConfig.sendMessage(player, Message.INVENTORY_FULL);
+                return;
+            }
+
+            for (Player trunkViewer : VehicleData.getTrunkViewers(license)) {
+                trunkViewer.closeInventory();
+            }
+            player.getInventory().addItem(skin.getHelmet());
+            player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_PICKUP).replace("%p%", vehicle.getOwnerName())));
+            removeAttachedVehicleVisual(license);
+            components.forEach(Entity::remove);
+            VehicleData.clearRuntimeData(license, true);
         } else {
             if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.CAR_PICKUP)) {
                 player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.CANNOT_DO_THAT_HERE)));
@@ -647,6 +1006,64 @@ public final class VehicleUtils {
             player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_NO_OWNER_PICKUP).replace("%p%", vehicle.getOwnerName())));
             return;
         }
+    }
+
+    private static boolean belongsToVehicle(Entity entity, String license) {
+        String name = entity.getCustomName();
+        return entity instanceof ArmorStand
+                && name != null
+                && name.startsWith("MTVEHICLES_")
+                && license.equals(getLicensePlate(entity));
+    }
+
+    private static List<Entity> findVehicleEntities(String license, @Nullable Entity anchor, @Nullable World preferredWorld) {
+        Set<Entity> matches = new LinkedHashSet<>();
+        if (anchor != null) {
+            if (belongsToVehicle(anchor, license)) matches.add(anchor);
+            for (Entity nearby : anchor.getNearbyEntities(16, 16, 16)) {
+                if (belongsToVehicle(nearby, license)) matches.add(nearby);
+            }
+            return new ArrayList<>(matches);
+        }
+
+        Collection<World> worlds = preferredWorld == null
+                ? Bukkit.getServer().getWorlds()
+                : Collections.singleton(preferredWorld);
+        for (World world : worlds) {
+            for (Entity entity : world.getEntities()) {
+                if (belongsToVehicle(entity, license)) matches.add(entity);
+            }
+        }
+        return new ArrayList<>(matches);
+    }
+
+    @Nullable
+    private static Map<?, ?> getRotorDefinition(Vehicle vehicle) {
+        if (vehicle == null || vehicle.getVehicleData() == null) return null;
+        Object definitions = vehicle.getVehicleData().get("wiekens");
+        if (!(definitions instanceof List) || ((List<?>) definitions).isEmpty()) return null;
+        Object firstDefinition = ((List<?>) definitions).get(0);
+        return firstDefinition instanceof Map ? (Map<?, ?>) firstDefinition : null;
+    }
+
+    private static boolean storeRotorOffsets(String licensePlate, Map<?, ?> blade) {
+        Object x = blade.get("x");
+        Object y = blade.get("y");
+        Object z = blade.get("z");
+        if (!(x instanceof Number) || !(y instanceof Number) || !(z instanceof Number)) return false;
+
+        String bladeKey = "MTVEHICLES_WIEKENS_" + licensePlate;
+        VehicleData.wiekenx.put(bladeKey, ((Number) x).doubleValue());
+        VehicleData.wiekeny.put(bladeKey, ((Number) y).doubleValue());
+        VehicleData.wiekenz.put(bladeKey, ((Number) z).doubleValue());
+        return true;
+    }
+
+    /** Reload missing rotor offsets from the vehicle definition. */
+    public static boolean loadRotorOffsets(String licensePlate) {
+        Vehicle vehicle = getVehicle(licensePlate);
+        Map<?, ?> blade = getRotorDefinition(vehicle);
+        return blade != null && storeRotorOffsets(licensePlate, blade);
     }
 
     /**
@@ -675,11 +1092,12 @@ public final class VehicleUtils {
 
         for (World world : Bukkit.getServer().getWorlds()) {
             for (Entity entity : world.getEntities()) {
-                if (entity.getCustomName() != null && entity.getCustomName().contains(licensePlate)) {
+                if (belongsToVehicle(entity, licensePlate)) {
                     entity.teleport(location);
                 }
             }
         }
+        updateAttachedVehicleVisual(licensePlate);
     }
 
     /**
@@ -694,18 +1112,20 @@ public final class VehicleUtils {
         int despawned = 0;
         for (String licensePlate : licensePlates) {
             if (!existsByLicensePlate(licensePlate)) throw new IllegalArgumentException("Vehicle " + licensePlate + " does not exist.");
+            removeAttachedVehicleVisual(licensePlate);
             for (Player trunkViewer : VehicleData.getTrunkViewers(licensePlate)){
                 trunkViewer.closeInventory();
             }
 
             for (World world : Bukkit.getServer().getWorlds()) {
                 for (Entity entity : world.getEntities()) {
-                    if (entity.getCustomName() != null && entity.getCustomName().contains(licensePlate) && entity.getCustomName().contains("MTVEHICLES")) {
+                    if (belongsToVehicle(entity, licensePlate)) {
                         entity.remove();
                         despawned++;
                     }
                 }
             }
+            VehicleData.clearRuntimeData(licensePlate, true);
         }
         return despawned;
     }
@@ -723,20 +1143,63 @@ public final class VehicleUtils {
         int despawned = 0;
         for (String licensePlate : licensePlates) {
             if (!existsByLicensePlate(licensePlate)) throw new IllegalArgumentException("Vehicle " + licensePlate + " does not exist.");
+            removeAttachedVehicleVisual(licensePlate);
 
             for (Player trunkViewer : VehicleData.getTrunkViewers(licensePlate)){
                 trunkViewer.closeInventory();
             }
 
             for (Entity entity : world.getEntities()) {
-                if (entity.getCustomName() != null && entity.getCustomName().contains(licensePlate)) {
+                if (belongsToVehicle(entity, licensePlate)) {
                     entity.remove();
                     despawned++;
                 }
             }
+            VehicleData.clearRuntimeData(licensePlate, true);
         }
         return despawned;
     }
+
+    /**
+     * Removes every vehicle that both exists in persistent storage and has a
+     * real MAIN entity in a loaded world. Stale historical records are ignored
+     * and are never deleted from storage.
+     */
+    public static DespawnAllResult despawnAllPersistedSpawnedVehicles() {
+        Set<String> persisted = ConfigModule.vehicleDataConfig.getVehicles().keySet();
+        Map<String, List<Entity>> componentsByLicense = new HashMap<>();
+        Set<String> spawned = new HashSet<>();
+
+        for (World world : Bukkit.getWorlds()) {
+            for (ArmorStand entity : world.getEntitiesByClass(ArmorStand.class)) {
+                if (!isVehicle(entity)) continue;
+                String license = getLicensePlate(entity);
+                if (license == null || !persisted.contains(license)) continue;
+
+                componentsByLicense.computeIfAbsent(license, ignored -> new ArrayList<>()).add(entity);
+                if (("MTVEHICLES_MAIN_" + license).equals(entity.getCustomName())) spawned.add(license);
+            }
+        }
+
+        int removedEntities = 0;
+        for (String license : spawned) {
+            removeAttachedVehicleVisual(license);
+            for (Player viewer : VehicleData.getTrunkViewers(license)) viewer.closeInventory();
+
+            for (Entity component : componentsByLicense.getOrDefault(license, List.of())) {
+                for (Entity passenger : component.getPassengers()) {
+                    if (passenger instanceof Player player) BossBarUtils.removeBossBar(player, license);
+                }
+                component.remove();
+                removedEntities++;
+            }
+            VehicleData.clearRuntimeData(license, true);
+        }
+
+        return new DespawnAllResult(spawned.size(), removedEntities, persisted.size() - spawned.size());
+    }
+
+    public record DespawnAllResult(int vehicles, int entities, int notSpawnedRecords) {}
 
     /**
      * Get a list of all spawned vehicles' license plates in all worlds.
@@ -751,7 +1214,7 @@ public final class VehicleUtils {
             for (Entity entity : world.getEntities()) {
                 if (entity.getCustomName() != null) {
                     String name = entity.getCustomName();
-                    if (name.contains("MTVEHICLES_MAIN_")) list.add(name.split("_")[2]);
+                    if (name.startsWith("MTVEHICLES_MAIN_")) list.add(name.substring("MTVEHICLES_MAIN_".length()));
                 }
             }
         }
@@ -770,7 +1233,7 @@ public final class VehicleUtils {
         for (Entity entity : world.getEntities()) {
             if (entity.getCustomName() != null) {
                 String name = entity.getCustomName();
-                if (name.contains("MTVEHICLES_MAIN_")) list.add(name.split("_")[2]);
+                if (name.startsWith("MTVEHICLES_MAIN_")) list.add(name.substring("MTVEHICLES_MAIN_".length()));
             }
         }
         return list;
@@ -817,11 +1280,15 @@ public final class VehicleUtils {
      */
     @ToDo("Beautify the code inside this method.")
     public static void enterVehicle(String licensePlate, Player p) {
-        if (!(VehicleData.autostand2.get(licensePlate) == null)) {
-            if (!VehicleData.autostand2.get(licensePlate).isEmpty()) {
-                return;
-            }
-        }
+        enterVehicle(licensePlate, p, null);
+    }
+
+    /**
+     * Activate a vehicle using a clicked component as a local lookup anchor.
+     */
+    public static void enterVehicle(String licensePlate, Player p, @Nullable Entity anchor) {
+        ArmorStand activeDriverSeat = VehicleData.autostand2.get(licensePlate);
+        if (activeDriverSeat != null && !activeDriverSeat.isEmpty()) return;
 
         Vehicle vehicle = getVehicle(licensePlate);
 
@@ -841,88 +1308,94 @@ public final class VehicleUtils {
             return;
         }
 
-        for (Entity entity : p.getWorld().getEntities()) {
-
-            if (entity.getCustomName() != null && entity.getCustomName().contains(licensePlate)) {
-                ArmorStand vehicleAs = (ArmorStand) entity;
-                if (!entity.isEmpty()) {
-                    return;
-                }
-                VehicleData.fuel.put(licensePlate, vehicle.getFuel());
-                VehicleData.fuelUsage.put(licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FUEL_USAGE));
-                VehicleData.type.put(licensePlate, VehicleType.valueOf(ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.VEHICLE_TYPE).toString().toUpperCase(Locale.ROOT)));
-
-                VehicleData.setRotationSpeed(licensePlate, (int) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.ROTATION_SPEED));
-                VehicleData.setSpeed(VehicleData.DataSpeed.MAXSPEED, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.MAX_SPEED));
-                VehicleData.setSpeed(VehicleData.DataSpeed.ACCELERATION, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.ACCELERATION_SPEED));
-                VehicleData.setSpeed(VehicleData.DataSpeed.BRAKING, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.BRAKING_SPEED));
-                VehicleData.setSpeed(VehicleData.DataSpeed.MAXSPEEDBACKWARDS, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.MAX_SPEED_BACKWARDS));
-                VehicleData.setSpeed(VehicleData.DataSpeed.FRICTION, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FRICTION_SPEED));
-
-                Location location = new Location(entity.getWorld(), entity.getLocation().getX(), entity.getLocation().getY(), entity.getLocation().getZ(), entity.getLocation().getYaw(), entity.getLocation().getPitch());
-
-                if (!ConfigModule.defaultConfig.canProceedWithAction(RegionAction.ENTER, vehicle.getVehicleType(), location, p)){
-                    ConfigModule.messagesConfig.sendMessage(p, Message.CANNOT_DO_THAT_HERE);
-                    return;
-                }
-
-                VehicleType vehicleType = ConfigModule.vehicleDataConfig.getType(licensePlate);
-                if (vehicleAs.getCustomName().contains("MTVEHICLES_SKIN_" + licensePlate)) {
-                    basicStandCreator(licensePlate, "SKIN", location, vehicleAs.getHelmet(), false);
-                    basicStandCreator(licensePlate, "MAIN", location, null, true);
-                    vehicle.saveSeats();
-                    List<Map<String, Double>> seats = vehicle.getSeats();
-                    VehicleData.seatsize.put(licensePlate, seats.size());
-                    for (int i = 1; i <= seats.size(); i++) {
-                        Map<String, Double> seat = seats.get(i - 1);
-                        if (i == 1) {
-                            mainSeatStandCreator(licensePlate, location, p, seat.get("x"), seat.get("y"), seat.get("z"));
-                            BossBarUtils.addBossBar(p, licensePlate);
-                            p.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_ENTER_RIDER).replace("%p%", getVehicle(licensePlate).getOwnerName())));
-                        }
-
-                        if (i > 1) {
-
-                            VehicleData.seatx.put("MTVEHICLES_SEAT" + i + "_" + licensePlate, seat.get("x"));
-                            VehicleData.seaty.put("MTVEHICLES_SEAT" + i + "_" + licensePlate, seat.get("y"));
-                            VehicleData.seatz.put("MTVEHICLES_SEAT" + i + "_" + licensePlate, seat.get("z"));
-                            Location location2 = new Location(location.getWorld(), location.getX() + Double.valueOf(seat.get("x")), location.getY() + Double.valueOf(seat.get("y")), location.getZ() + Double.valueOf(seat.get("z")));
-
-                            ArmorStand as = location2.getWorld().spawn(location2, ArmorStand.class);
-                            allowTicking(as);
-                            as.setVisible(false);
-                            as.setCustomName("MTVEHICLES_SEAT" + i + "_" + licensePlate);
-                            as.setGravity(false);
-
-                            VehicleData.autostand.put("MTVEHICLES_SEAT" + i + "_" + licensePlate, as);
-                        }
-                    }
-                    List<Map<String, Double>> wiekens = (List<Map<String, Double>>) vehicle.getVehicleData().get("wiekens");
-                    if (vehicleType.isHelicopter()) {
-                        VehicleData.maxheight.put(licensePlate, (int) ConfigModule.defaultConfig.get(DefaultConfig.Option.MAX_FLYING_HEIGHT));
-                        for (int i = 1; i <= wiekens.size(); i++) {
-                            Map<?, ?> seat = wiekens.get(i - 1);
-                            if (i == 1) {
-                                Location location2 = new Location(location.getWorld(), location.getX() + (Double) seat.get("z"), (Double) location.getY() + (Double) seat.get("y"), location.getZ() + (Double) seat.get("x"));
-                                VehicleData.wiekenx.put("MTVEHICLES_WIEKENS_" + licensePlate, (Double) seat.get("x"));
-                                VehicleData.wiekeny.put("MTVEHICLES_WIEKENS_" + licensePlate, (Double) seat.get("y"));
-                                VehicleData.wiekenz.put("MTVEHICLES_WIEKENS_" + licensePlate, (Double) seat.get("z"));
-
-                                ArmorStand as = location2.getWorld().spawn(location2, ArmorStand.class);
-                                allowTicking(as);
-                                as.setVisible(false);
-                                as.setCustomName("MTVEHICLES_WIEKENS_" + licensePlate);
-                                as.setGravity(false);
-                                as.setHelmet((ItemStack) seat.get("item"));
-
-                                VehicleData.autostand.put("MTVEHICLES_WIEKENS_" + licensePlate, as);
-                            }
-                        }
-                    }
-                }
-                vehicleAs.remove();
-            }
+        List<Entity> components = findVehicleEntities(licensePlate, anchor, p.getWorld());
+        ArmorStand skin = components.stream()
+                .filter(entity -> ("MTVEHICLES_SKIN_" + licensePlate).equals(entity.getCustomName()))
+                .map(entity -> (ArmorStand) entity)
+                .findFirst()
+                .orElse(null);
+        if (skin == null) {
+            ConfigModule.messagesConfig.sendMessage(p, Message.VEHICLE_NOT_FOUND);
+            return;
         }
+
+        boolean occupied = components.stream()
+                .anyMatch(entity -> ("MTVEHICLES_MAINSEAT_" + licensePlate).equals(entity.getCustomName()) && !entity.isEmpty());
+        if (occupied) return;
+
+        Location location = skin.getLocation().clone();
+        if (!ConfigModule.defaultConfig.canProceedWithAction(RegionAction.ENTER, vehicle.getVehicleType(), location, p)) {
+            ConfigModule.messagesConfig.sendMessage(p, Message.CANNOT_DO_THAT_HERE);
+            return;
+        }
+
+        vehicle.saveSeats();
+        List<Map<String, Double>> seats = vehicle.getSeats();
+        if (seats == null || seats.isEmpty()) {
+            Main.logSevere("Vehicle " + licensePlate + " has no configured driver seat.");
+            ConfigModule.messagesConfig.sendMessage(p, Message.VEHICLE_NOT_FOUND);
+            return;
+        }
+
+        VehicleType vehicleType = vehicle.getVehicleType();
+        VehicleData.fuel.put(licensePlate, vehicle.getFuel());
+        VehicleData.fuelUsage.put(licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FUEL_USAGE));
+        VehicleData.type.put(licensePlate, vehicleType);
+        VehicleData.setRotationSpeed(licensePlate, (int) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.ROTATION_SPEED));
+        VehicleData.setSpeed(VehicleData.DataSpeed.MAXSPEED, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.MAX_SPEED));
+        VehicleData.setSpeed(VehicleData.DataSpeed.ACCELERATION, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.ACCELERATION_SPEED));
+        VehicleData.setSpeed(VehicleData.DataSpeed.BRAKING, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.BRAKING_SPEED));
+        VehicleData.setSpeed(VehicleData.DataSpeed.MAXSPEEDBACKWARDS, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.MAX_SPEED_BACKWARDS));
+        VehicleData.setSpeed(VehicleData.DataSpeed.FRICTION, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FRICTION_SPEED));
+
+        basicStandCreator(licensePlate, "SKIN", location, skin.getHelmet(), false);
+        basicStandCreator(licensePlate, "MAIN", location, null, true);
+        VehicleData.seatsize.put(licensePlate, seats.size());
+
+        for (int i = 1; i <= seats.size(); i++) {
+            Map<String, Double> seat = seats.get(i - 1);
+            if (i == 1) {
+                mainSeatStandCreator(licensePlate, location, p, seat.get("x"), seat.get("y"), seat.get("z"));
+                continue;
+            }
+
+            String seatKey = "MTVEHICLES_SEAT" + i + "_" + licensePlate;
+            VehicleData.seatx.put(seatKey, seat.get("x"));
+            VehicleData.seaty.put(seatKey, seat.get("y"));
+            VehicleData.seatz.put(seatKey, seat.get("z"));
+            Location seatLocation = location.clone().add(seat.get("x"), seat.get("y"), seat.get("z"));
+            ArmorStand seatStand = seatLocation.getWorld().spawn(seatLocation, ArmorStand.class);
+            allowTicking(seatStand);
+            seatStand.setVisible(false);
+            seatStand.setCustomName(seatKey);
+            seatStand.setGravity(false);
+            VehicleData.autostand.put(seatKey, seatStand);
+        }
+
+        if (vehicleType.isHelicopter()) {
+            Map<?, ?> blade = getRotorDefinition(vehicle);
+            if (blade != null && storeRotorOffsets(licensePlate, blade)) {
+                String bladeKey = "MTVEHICLES_WIEKENS_" + licensePlate;
+                double bladeX = VehicleData.wiekenx.get(bladeKey);
+                double bladeY = VehicleData.wiekeny.get(bladeKey);
+                double bladeZ = VehicleData.wiekenz.get(bladeKey);
+                Location bladeLocation = location.clone().add(bladeZ, bladeY, bladeX);
+                ArmorStand bladeStand = bladeLocation.getWorld().spawn(bladeLocation, ArmorStand.class);
+                allowTicking(bladeStand);
+                bladeStand.setVisible(false);
+                bladeStand.setCustomName(bladeKey);
+                bladeStand.setGravity(false);
+                if (blade.get("item") instanceof ItemStack) {
+                    bladeStand.setHelmet((ItemStack) blade.get("item"));
+                }
+                VehicleData.autostand.put(bladeKey, bladeStand);
+            }
+            VehicleData.maxheight.put(licensePlate, (int) ConfigModule.defaultConfig.get(DefaultConfig.Option.MAX_FLYING_HEIGHT));
+        }
+
+        BossBarUtils.addBossBar(p, licensePlate);
+        p.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_ENTER_RIDER).replace("%p%", vehicle.getOwnerName())));
+        components.forEach(Entity::remove);
     }
 
     /**
@@ -940,16 +1413,14 @@ public final class VehicleUtils {
     }
 
     private static void allowTicking(ArmorStand armorStand) {
-        if(PaperUtils.isRunningPaper) {
-            armorStand.setCanTick(true);
-        }
+        armorStand.setCanTick(true);
     }
 
     /**
      * Used in {@link #enterVehicle(String, Player)}.
      */
     private static void mainSeatStandCreator(String license, Location location, Player p, double x, double y, double z) {
-        Location location2 = new Location(location.getWorld(), location.getX() + Double.valueOf(z), location.getY() + Double.valueOf(y), location.getZ() + Double.valueOf(z));
+        Location location2 = new Location(location.getWorld(), location.getX() + x, location.getY() + y, location.getZ() + z);
         ArmorStand as = location2.getWorld().spawn(location2, ArmorStand.class);
         allowTicking(as);
         as.setVisible(false);
@@ -958,7 +1429,6 @@ public final class VehicleUtils {
 
         VehicleData.autostand.put("MTVEHICLES_MAINSEAT_" + license, as);
         VehicleData.speed.put(license, 0.0);
-        VehicleData.speedhigh.put(license, 0.0);
         VehicleData.mainx.put("MTVEHICLES_MAINSEAT_" + license, x);
         VehicleData.mainy.put("MTVEHICLES_MAINSEAT_" + license, y);
         VehicleData.mainz.put("MTVEHICLES_MAINSEAT_" + license, z);
@@ -1035,16 +1505,22 @@ public final class VehicleUtils {
         VehicleType vehicleType = VehicleData.type.get(licensePlate);
 
         VehicleData.lastRegions.remove(licensePlate); // doesn't do anything if not set
+        VehicleData.lastRegionCheckLocation.remove(licensePlate);
         if(vehicleType == null) return true;
 
         if (vehicleType.isHelicopter()) {
             ArmorStand blades = VehicleData.autostand.get("MTVEHICLES_WIEKENS_" + licensePlate);
-            Location locBelow = new Location(blades.getLocation().getWorld(), blades.getLocation().getX(), blades.getLocation().getY() - 0.2, blades.getLocation().getZ(), blades.getLocation().getYaw(), blades.getLocation().getPitch());
-            blades.setGravity(locBelow.getBlock().getType().equals(Material.AIR)); // Blades should not fall if the helicopter is on the ground
+            if (blades != null && blades.isValid()) {
+                Location locBelow = blades.getLocation().clone().subtract(0, 0.2, 0);
+                blades.setGravity(locBelow.getBlock().getType().equals(Material.AIR)); // Blades should not fall if the helicopter is on the ground
+            }
         }
 
         // If a helicopter is 'extremely falling' and player manages to leave it beforehand
-        if (vehicleType.isHelicopter() && (boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.EXTREME_HELICOPTER_FALL) && !standMainSeat.isOnGround()){
+        if (vehicleType.isHelicopter()
+                && standMainSeat != null
+                && (boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.EXTREME_HELICOPTER_FALL)
+                && !standMainSeat.isOnGround()){
             VehicleData.fallDamage.put(licensePlate, true); // Do not damage when entering afterwards
         }
 
@@ -1057,13 +1533,13 @@ public final class VehicleUtils {
             if (VehicleData.autostand.get("MTVEHICLES_SEAT" + i + "_" + licensePlate) != null)
                 VehicleData.autostand.get("MTVEHICLES_SEAT" + i + "_" + licensePlate).remove();
         }
-        VehicleData.type.remove(licensePlate); //.remove(license+"b") used to be here... why? maybe i'm missing something?
-
         if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.FUEL_ENABLED) && (boolean) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FUEL_ENABLED)) {
-            double fuel = VehicleData.fuel.get(licensePlate);
+            double fuel = VehicleData.fuel.getOrDefault(licensePlate, vehicle.getFuel());
             ConfigModule.vehicleDataConfig.set(licensePlate, VehicleDataConfig.Option.FUEL, fuel);
             ConfigModule.vehicleDataConfig.saveToDisk();
         }
+
+        VehicleData.clearRuntimeData(licensePlate, false);
 
         return true;
     }

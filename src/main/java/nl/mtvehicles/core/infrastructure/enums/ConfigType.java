@@ -7,6 +7,8 @@ public enum ConfigType {
     DEFAULT("config.yml"),
     VEHICLES("vehicles.yml"),
     VEHICLE_DATA("vehicleData.yml"),
+    STORAGE("storage.yml"),
+    SIRENS("sirens.yml"),
     SUPERSECRETSETTINGS("supersecretsettings.yml"),
     MESSAGES;
 

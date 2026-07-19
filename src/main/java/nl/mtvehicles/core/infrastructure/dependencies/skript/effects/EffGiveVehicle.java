@@ -16,8 +16,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Objects;
-
 @Name("Give an MTV vehicle")
 @Description("Give a vehicle to a player")
 @Examples({
@@ -104,9 +102,11 @@ public class EffGiveVehicle extends Effect {
                 Main.logSevere("Skript error: Provided UUID does not exist (\"give %player% [mtv] vehicle (by|with) (UUID|uuid) %string%\").");
                 return;
             }
-            player.getSingle(event).getInventory().addItem(
-                    Objects.requireNonNull(VehicleUtils.createAndGetItemByUUID(player.getSingle(event), text.getSingle(event)))
-            );
+            VehicleUtils.PreparedVehicle prepared = VehicleUtils.prepareVehicleByUUID(
+                    player.getSingle(event), text.getSingle(event));
+            if (prepared == null || !prepared.deliverTo(player.getSingle(event))) {
+                Main.logSevere("Skript could not deliver the new vehicle; no database record was created.");
+            }
         }
     }
 }

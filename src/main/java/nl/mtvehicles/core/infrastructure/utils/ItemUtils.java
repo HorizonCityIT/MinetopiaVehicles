@@ -1,15 +1,16 @@
 package nl.mtvehicles.core.infrastructure.utils;
 
+import de.tr7zw.changeme.nbtapi.NBTItem;
 import nl.mtvehicles.core.Main;
-import nl.mtvehicles.core.infrastructure.annotations.VersionSpecific;
 import nl.mtvehicles.core.infrastructure.dataconfig.MessagesConfig;
 import nl.mtvehicles.core.infrastructure.dataconfig.VehicleDataConfig;
+import nl.mtvehicles.core.infrastructure.dependencies.ItemsAdderUtils;
 import nl.mtvehicles.core.infrastructure.enums.Message;
-import nl.mtvehicles.core.infrastructure.enums.ServerVersion;
+import nl.mtvehicles.core.infrastructure.enums.SoftDependency;
 import nl.mtvehicles.core.infrastructure.vehicle.Vehicle;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
-import org.apache.commons.lang.RandomStringUtils;
+import nl.mtvehicles.core.infrastructure.modules.DependencyModule;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
@@ -18,43 +19,104 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-import static nl.mtvehicles.core.infrastructure.modules.VersionModule.getServerVersion;
-
 /**
  * Methods for creating items in plugin's menus
  */
 public class ItemUtils {
+    private static final String SKIN_ITEM_NBT = "mtvehicles.skinitem";
+    private static final String SKIN_DAMAGE_NBT = "mtvehicles.skindamage";
+
     /**
      * HashMap containing information of what is being edited by players
      */
     public static HashMap<String, Boolean> edit = new HashMap<>();
 
-    /**
-     * Get material from string (e.g. 'DIAMOND_HOE'). Accepts legacy names.
-     * @param string Material as a String
-     * @return Material
-     */
+    /** Get a modern Bukkit material from its namespaced or enum name. */
     public static Material getMaterial(String string){
-        try {
-            Material material = Material.matchMaterial(string);
-            assert material != null;
-            return material;
-        } catch (Exception e1){
-            try {
-                Material material = Material.matchMaterial("LEGACY_" + string);
-                assert material != null;
-                return material;
-            } catch (Exception e2){
-                try {
-                    Material material = Material.matchMaterial(string, true);
-                    assert material != null;
-                    return material;
-                } catch (Exception e3){
-                    Main.logSevere("An error occurred while trying to obtain material from string '" + string + "'. This might happen after meddling with the config files or it could be a plugin issue.");
-                    return null;
-                }
-            }
+        Material material = matchMaterial(string);
+        if (material == null) {
+            Main.logSevere("An error occurred while trying to obtain material from string '" + string + "'. This might happen after meddling with the config files or it could be a plugin issue.");
         }
+        return material;
+    }
+
+    private static Material matchMaterial(String string) {
+        if (string == null || string.trim().isEmpty()) return null;
+
+        return Material.matchMaterial(string);
+    }
+
+    /**
+     * Create a factory from either a Bukkit material or an ItemsAdder namespaced item.
+     * Configured model damage is only applied to Bukkit materials: an ItemsAdder stack already
+     * contains the components and metadata required to render its custom model.
+     */
+    private static ItemFactory getSkinItemFactory(String skinItem, int durability) {
+        Material material = matchMaterial(skinItem);
+        if (material != null) {
+            if (!material.isItem()) return null;
+            return new ItemFactory(material).setDurability(durability);
+        }
+
+        if (!DependencyModule.isDependencyEnabled(SoftDependency.ITEMS_ADDER)) {
+            Main.logSevere("Cannot resolve custom item '" + skinItem + "': ItemsAdder is not installed or was not loaded.");
+            return null;
+        }
+
+        ItemStack item;
+        try {
+            item = ItemsAdderUtils.getItemStack(skinItem);
+        } catch (LinkageError error) {
+            Main.logSevere("Cannot use ItemsAdder item '" + skinItem + "': the installed ItemsAdder API is incompatible.");
+            return null;
+        }
+
+        if (item == null) {
+            Main.logSevere("Cannot resolve ItemsAdder item '" + skinItem + "'. Check the namespace and make sure ItemsAdder has finished loading its data.");
+            return null;
+        }
+
+        if (item.getType() == Material.AIR) {
+            Main.logSevere("ItemsAdder returned an invalid item for '" + skinItem + "'.");
+            return null;
+        }
+        return new ItemFactory(item);
+    }
+
+    private static ItemFactory setConfiguredSkin(ItemFactory factory, String skinItem, int skinDamage) {
+        return factory
+                .setNBT(SKIN_ITEM_NBT, skinItem)
+                .setNBT(SKIN_DAMAGE_NBT, Integer.toString(skinDamage));
+    }
+
+    /**
+     * Get the configured Bukkit material or ItemsAdder namespaced ID carried by a
+     * vehicle item. Old vehicle items fall back to their Bukkit material.
+     */
+    public static String getConfiguredSkinItem(@NotNull ItemStack item) {
+        NBTItem nbt = new NBTItem(item);
+        String skinItem = nbt.getString(SKIN_ITEM_NBT);
+        return skinItem == null || skinItem.isEmpty() ? item.getType().toString() : skinItem;
+    }
+
+    /**
+     * Get the configured model damage carried by a vehicle item.
+     */
+    public static int getConfiguredSkinDamage(@NotNull ItemStack item) {
+        NBTItem nbt = new NBTItem(item);
+        String skinDamage = nbt.getString(SKIN_DAMAGE_NBT);
+        if (skinDamage == null || skinDamage.isEmpty()) return getItemDamage(item);
+        try {
+            return Integer.parseInt(skinDamage);
+        } catch (NumberFormatException ignored) {
+            return getItemDamage(item);
+        }
+    }
+
+    private static int getItemDamage(ItemStack item) {
+        return item.getItemMeta() instanceof org.bukkit.inventory.meta.Damageable damageable
+                ? damageable.getDamage()
+                : 0;
     }
 
     /**
@@ -72,6 +134,20 @@ public class ItemUtils {
     }
 
     /**
+     * Get an item used in the vehicle menu from a Bukkit material or an
+     * ItemsAdder {@code namespace:item} identifier.
+     */
+    public static ItemStack getMenuVehicle(@NotNull String skinItem, int durability, String name){
+        ItemFactory factory = getSkinItemFactory(skinItem, durability);
+        if (factory == null) return null;
+        return factory
+                .setName(TextUtils.colorize("&6" + name))
+                .setUnbreakable(true)
+                .setLore("&a")
+                .toItemStack();
+    }
+
+    /**
      * Create a new vehicle item (used in "Choose vehicle menu" and #getCarItem(...)). Updated method (used to be #carItem2(...)).
      */
     public static ItemStack getVehicleItem(@NotNull Material material, int durability, String name){
@@ -86,6 +162,23 @@ public class ItemUtils {
                 .setUnbreakable(true)
                 .toItemStack();
         return vehicle;
+    }
+
+    /**
+     * Create a vehicle item from a Bukkit material or an ItemsAdder
+     * {@code namespace:item} identifier.
+     */
+    public static ItemStack getVehicleItem(@NotNull String skinItem, int durability, String name){
+        ItemFactory factory = getSkinItemFactory(skinItem, durability);
+        if (factory == null) return null;
+        String licensePlate = generateLicencePlate();
+        return setConfiguredSkin(factory, skinItem, durability)
+                .setName(TextUtils.colorize("&6" + name))
+                .setNBT("mtvehicles.kenteken", licensePlate)
+                .setNBT("mtvehicles.naam", name)
+                .setLore("&a", "&a" + licensePlate, "&a")
+                .setUnbreakable(true)
+                .toItemStack();
     }
 
     /**
@@ -109,6 +202,21 @@ public class ItemUtils {
         return vehicle;
     }
 
+    public static ItemStack getVehicleItem(@NotNull String skinItem, int durability, String name, String nbtKey, @Nullable Object nbtValue){
+        if (nbtValue == null) return getVehicleItem(skinItem, durability, name);
+        ItemFactory factory = getSkinItemFactory(skinItem, durability);
+        if (factory == null) return null;
+        String licensePlate = generateLicencePlate();
+        return setConfiguredSkin(factory, skinItem, durability)
+                .setName(TextUtils.colorize("&6" + name))
+                .setNBT("mtvehicles.kenteken", licensePlate)
+                .setNBT("mtvehicles.naam", name)
+                .setNBT(nbtKey, nbtValue.toString())
+                .setLore("&a", "&a" + licensePlate, "&a")
+                .setUnbreakable(true)
+                .toItemStack();
+    }
+
     /**
      * Restore a vehicle item with a known license plate (used in /vehicle restore and #spawnVehicle(...)). Updated method (used to be #carItem5(...)).
      */
@@ -127,6 +235,20 @@ public class ItemUtils {
         return vehicle;
     }
 
+    public static ItemStack getVehicleItem(@NotNull String skinItem, int durability, @Nullable Boolean glowing, String name, String licensePlate){
+        ItemFactory factory = getSkinItemFactory(skinItem, durability);
+        if (factory == null) return null;
+        if (glowing == null) glowing = false;
+        return setConfiguredSkin(factory, skinItem, durability)
+                .setName(TextUtils.colorize("&6" + name))
+                .setGlowing(glowing)
+                .setNBT("mtvehicles.kenteken", licensePlate)
+                .setNBT("mtvehicles.naam", name)
+                .setLore("&a", "&a" + licensePlate, "&a")
+                .setUnbreakable(true)
+                .toItemStack();
+    }
+
     /**
      * Restore a vehicle item with a known license plate (will use data from VehicleData.yml).
      * @see #getVehicleItem(String, boolean)
@@ -135,7 +257,7 @@ public class ItemUtils {
      */
     public static ItemStack getVehicleItem(String licensePlate){
         return getVehicleItem(
-                Objects.requireNonNull(getMaterial(ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString())),
+                ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString(),
                 (int) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_DAMAGE),
                 (boolean) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.IS_GLOWING),
                 ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.NAME).toString(),
@@ -154,7 +276,7 @@ public class ItemUtils {
         if (!nbt) return getVehicleItem(licensePlate);
 
         return getVehicleItem(
-                Objects.requireNonNull(getMaterial(ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString())),
+                ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString(),
                 (int) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_DAMAGE),
                 (boolean) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.IS_GLOWING),
                 ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.NAME).toString(),
@@ -186,39 +308,24 @@ public class ItemUtils {
         return vehicle;
     }
 
-    private static String generateLicencePlate() {
-        String plate = String.format("%s-%s-%s", RandomStringUtils.random(2, true, false), RandomStringUtils.random(2, true, false), RandomStringUtils.random(2, true, false));
-        return plate.toUpperCase();
-    }
-
-    /**
-     * Get a menu item by material, amount, name and lore (as List).
-     * <b>Used for items whose Material name has been changed between versions.</b>
-     *
-     * An updated method (used to be #woolItem(...)).
-     */
-    public static ItemStack getMenuItem(String materialName, String materialLegacyName, short legacyData, int amount, String name, List<String> lores){
-        ItemStack item;
-        try {
-            item = new ItemStack(getMaterial(materialName), amount);
-        } catch (Exception e1){
-            try {
-                item = new ItemStack(getMaterial(materialLegacyName), amount);
-                item.setDurability(legacyData);
-            } catch (Exception e2){
-                Main.logSevere("An error occurred - could not get item neither from " + materialName + " nor from " + materialLegacyName + ". This is most likely a plugin issue, contact us at discord.gg/vehicle!");
-                return null;
-            }
-        }
-
-        return (new ItemFactory(item))
-                .setName(name)
-                .setLore(lores)
+    public static ItemStack getVehicleItem(@NotNull String skinItem, int durability, Boolean glowing, String name, String licensePlate, String nbtKey, @Nullable Object nbtValue){
+        if (nbtValue == null) return getVehicleItem(skinItem, durability, glowing, name, licensePlate);
+        ItemFactory factory = getSkinItemFactory(skinItem, durability);
+        if (factory == null) return null;
+        if (glowing == null) glowing = false;
+        return setConfiguredSkin(factory, skinItem, durability)
+                .setName(TextUtils.colorize("&6" + name))
+                .setGlowing(glowing)
+                .setNBT("mtvehicles.kenteken", licensePlate)
+                .setNBT("mtvehicles.naam", name)
+                .setNBT(nbtKey, nbtValue.toString())
+                .setLore("&a", "&a" + licensePlate, "&a")
+                .setUnbreakable(true)
                 .toItemStack();
     }
 
-    public static ItemStack getMenuItem(String materialName, String materialLegacyName, short legacyData, int amount, String name, String... lores){
-        return getMenuItem(materialName, materialLegacyName, legacyData, amount, name, Arrays.asList(lores));
+    private static String generateLicencePlate() {
+        return ConfigModule.vehicleDataConfig.reserveNextLicensePlate();
     }
 
     /**
@@ -290,10 +397,8 @@ public class ItemUtils {
     /**
      * Get the stained glass pane material
      */
-    @VersionSpecific
     public static Material getStainedGlassPane(){
-        if (getServerVersion() == ServerVersion.v1_12_R1) return Material.matchMaterial("STAINED_GLASS_PANE");
-        else return Material.matchMaterial("WHITE_STAINED_GLASS_PANE");
+        return Material.WHITE_STAINED_GLASS_PANE;
     }
 
     /**
@@ -367,12 +472,26 @@ public class ItemUtils {
         return vehicle;
     }
 
+    public static ItemStack getMenuCustomItem(@NotNull String skinItem, String name, int durability, List<String> lore){
+        ItemFactory factory = getSkinItemFactory(skinItem, durability);
+        if (factory == null) return null;
+        return factory
+                .setName(name)
+                .setLore(lore)
+                .setUnbreakable(true)
+                .toItemStack();
+    }
+
     /**
      * Get a custom menu item which has a custom texture (e.g. vehicle or a jerry can). Get lore from multiple Strings.
      * An updated method (used to be #mItem2(...)).
      */
     public static ItemStack getMenuCustomItem(@NotNull Material material, String name, int durability, String... lore){
         return getMenuCustomItem(material, name, durability, Arrays.asList(lore));
+    }
+
+    public static ItemStack getMenuCustomItem(@NotNull String skinItem, String name, int durability, String... lore){
+        return getMenuCustomItem(skinItem, name, durability, Arrays.asList(lore));
     }
 
     /**
@@ -394,12 +513,28 @@ public class ItemUtils {
         return vehicle;
     }
 
+    public static ItemStack getMenuCustomItem(@NotNull String skinItem, String nbtKey, @Nullable Object nbtValue, String name, int durability, List<String> lore){
+        if (nbtValue == null) return getMenuCustomItem(skinItem, name, durability, lore);
+        ItemFactory factory = getSkinItemFactory(skinItem, durability);
+        if (factory == null) return null;
+        return factory
+                .setName(name)
+                .setNBT(nbtKey, nbtValue.toString())
+                .setLore(lore)
+                .setUnbreakable(true)
+                .toItemStack();
+    }
+
     /**
      * Get a custom menu item which has a custom texture (e.g. vehicle or a jerry can) <b>with a custom NBT</b>. Get lore from multiple Strings.
      * An updated method (used to be #mItem3(...)).
      */
     public static ItemStack getMenuCustomItem(@NotNull Material material, String nbtKey, @Nullable Object nbtValue, String name, int durability, String... lore){
         return getMenuCustomItem(material, nbtKey, nbtValue, name, durability, Arrays.asList(lore));
+    }
+
+    public static ItemStack getMenuCustomItem(@NotNull String skinItem, String nbtKey, @Nullable Object nbtValue, String name, int durability, String... lore){
+        return getMenuCustomItem(skinItem, nbtKey, nbtValue, name, durability, Arrays.asList(lore));
     }
 
     /**

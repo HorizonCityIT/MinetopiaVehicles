@@ -36,17 +36,13 @@ public class VehicleVoucherListener extends MTVListener {
         Inventory inv = Bukkit.createInventory(null, 27, InventoryTitle.VOUCHER_REDEEM_MENU.getStringTitle());
 
         inv.setItem(11, ItemUtils.getMenuItem(
-                "RED_WOOL",
-                "WOOL",
-                (short) 14,
+                Material.RED_WOOL,
                 1,
                 "&c" + ConfigModule.messagesConfig.getMessage(Message.CANCEL),
                 "&7" + ConfigModule.messagesConfig.getMessage(Message.CANCEL_ACTION), "&7" + ConfigModule.messagesConfig.getMessage(Message.CANCEL_VOUCHER)
         ));
         inv.setItem(15, ItemUtils.getMenuItem(
-                "LIME_WOOL",
-                "WOOL",
-                (short) 5,
+                Material.LIME_WOOL,
                 1,
                 "&a" + ConfigModule.messagesConfig.getMessage(Message.CONFIRM),
                 "&7" + ConfigModule.messagesConfig.getMessage(Message.CONFIRM_ACTION), "&7" + ConfigModule.messagesConfig.getMessage(Message.CONFIRM_VOUCHER)

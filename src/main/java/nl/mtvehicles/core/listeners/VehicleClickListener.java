@@ -17,16 +17,18 @@ import org.bukkit.entity.Entity;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * On vehicle right click - entering and picking up
  */
 
 public class VehicleClickListener extends MTVListener {
-    private final Map<String, Long> lastUsage = new HashMap<>();
+    private final Map<UUID, Long> lastUsage = new HashMap<>();
 
     private Entity entity;
     private String license;
@@ -45,12 +47,12 @@ public class VehicleClickListener extends MTVListener {
 
         if(player.getGameMode() == GameMode.SPECTATOR) return;
 
-        final String playerName = player.getName();
+        final UUID playerId = player.getUniqueId();
         final long currentTime = System.currentTimeMillis();
-        final long lastUsed = lastUsage.getOrDefault(playerName, 0L);
+        final long lastUsed = lastUsage.getOrDefault(playerId, 0L);
 
         if (currentTime - lastUsed < 500) return;
-        lastUsage.put(playerName, currentTime);
+        lastUsage.put(playerId, currentTime);
 
         license = VehicleUtils.getLicensePlate(entity);
 
@@ -86,7 +88,7 @@ public class VehicleClickListener extends MTVListener {
             return;
         }
 
-        VehicleUtils.pickupVehicle(license, player);
+        VehicleUtils.pickupVehicle(license, player, entity);
     }
 
     private void enter() {
@@ -113,6 +115,11 @@ public class VehicleClickListener extends MTVListener {
             return;
         }
 
-        VehicleUtils.enterVehicle(license, player);
+        VehicleUtils.enterVehicle(license, player, entity);
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        lastUsage.remove(event.getPlayer().getUniqueId());
     }
 }

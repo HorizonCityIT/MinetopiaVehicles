@@ -1,17 +1,13 @@
 package nl.mtvehicles.core.listeners;
 
 import de.tr7zw.changeme.nbtapi.NBTItem;
-import nl.mtvehicles.core.Main;
 import nl.mtvehicles.core.commands.vehiclesubs.VehicleFuel;
 import nl.mtvehicles.core.events.JerryCanClickEvent;
-import nl.mtvehicles.core.infrastructure.annotations.VersionSpecific;
 import nl.mtvehicles.core.infrastructure.enums.Message;
-import nl.mtvehicles.core.infrastructure.enums.ServerVersion;
 import nl.mtvehicles.core.infrastructure.utils.TextUtils;
 import nl.mtvehicles.core.infrastructure.models.MTVListener;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
 import nl.mtvehicles.core.infrastructure.modules.DependencyModule;
-import nl.mtvehicles.core.infrastructure.modules.VersionModule;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
@@ -82,7 +78,7 @@ public class JerryCanClickListener extends MTVListener {
         }
 
         if (canAffordFuel(1)) {
-            player.setItemInHand(VehicleFuel.jerrycanItem(maxFuel, currentFuel + 1));
+            player.getInventory().setItemInMainHand(VehicleFuel.jerrycanItem(maxFuel, currentFuel + 1));
             playJerryCanSound();
         }
     }
@@ -95,7 +91,7 @@ public class JerryCanClickListener extends MTVListener {
 
         int difference = maxFuel - currentFuel;
         if (canAffordFuel(difference)) {
-            player.setItemInHand(VehicleFuel.jerrycanItem(maxFuel, maxFuel));
+            player.getInventory().setItemInMainHand(VehicleFuel.jerrycanItem(maxFuel, maxFuel));
             playJerryCanSound();
         }
     }
@@ -106,16 +102,8 @@ public class JerryCanClickListener extends MTVListener {
         return DependencyModule.vault.withdrawMoneyPlayer(player, price);
     }
 
-    @VersionSpecific
     private void playJerryCanSound() {
         if (!ConfigModule.defaultConfig.jerryCanPlaySound()) return;
-
-        String soundName = VersionModule.getServerVersion() == ServerVersion.v1_12_R1 ? "BLOCK_NOTE_PLING" : "BLOCK_NOTE_BLOCK_PLING";
-        try {
-            player.getWorld().playSound(player.getLocation(), Sound.valueOf(soundName), 3.0F, 0.5F);
-        } catch (IllegalArgumentException e) {
-            Main.logSevere("Could not play sound '" + soundName + "'.");
-            e.printStackTrace();
-        }
+        player.getWorld().playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 3.0F, 0.5F);
     }
 }

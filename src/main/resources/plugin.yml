@@ -1,9 +1,19 @@
 name: MTVehicles
 version: ${project.version}
 main: nl.mtvehicles.core.Main
-api-version: 1.13
-softdepend: [ WorldGuard, Vault, PlaceholderAPI, Skript ]
+api-version: '1.21.11'
+softdepend: [ WorldGuard, Vault, PlaceholderAPI, Skript, ItemsAdder ]
 commands:
   minetopiavehicles:
     usage: /minetopiavehicles
     aliases: [ mtv, minetopiav, mtvehicles, mtvehicle, vehicle ]
+permissions:
+  mtvehicles.despawnall:
+    description: Despawn every persisted vehicle currently present in loaded worlds
+    default: op
+  mtvehicles.speedcamera.admin:
+    description: Create, remove and list static speed cameras
+    default: op
+  mtvehicles.speedcamera.dynamic:
+    description: Use the dynamic speed gun
+    default: op

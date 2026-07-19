@@ -1,6 +1,5 @@
 package nl.mtvehicles.core.commands;
 
-import lombok.Getter;
 import nl.mtvehicles.core.commands.vehiclesubs.VehicleEdit;
 import nl.mtvehicles.core.infrastructure.modules.CommandModule;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
@@ -19,8 +18,11 @@ import java.util.*;
  */
 public class VehicleTabCompleterManager implements org.bukkit.command.TabCompleter {
 
-    @Getter
     private static HashMap<String, String> vehicleList = new HashMap<>();
+
+    public static HashMap<String, String> getVehicleList() {
+        return new HashMap<>(vehicleList);
+    }
     
     @Override
     public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
@@ -64,6 +66,16 @@ public class VehicleTabCompleterManager implements org.bukkit.command.TabComplet
                 } else if (strings.length == 3 && commandSender.hasPermission("mtvehicles.buyvoucher")) {
                     List<String> completions = Arrays.asList("--voucher:true", "--voucher:false");
                     return getApplicableTabCompleters(strings[2], completions);
+                }
+            } else if (subCommand.equals("autovelox") || subCommand.equals("speedcamera")) {
+                if (strings.length == 2) {
+                    return getApplicableTabCompleters(strings[1], Arrays.asList("add", "remove", "list", "dynamic"));
+                } else if (strings.length == 3 && strings[1].equalsIgnoreCase("dynamic")) {
+                    return getApplicableTabCompleters(strings[2], Arrays.asList("30", "50", "70", "90", "130"));
+                } else if (strings.length == 3 && strings[1].equalsIgnoreCase("add")) {
+                    return getApplicableTabCompleters(strings[2], Arrays.asList("30", "50", "70", "90", "130"));
+                } else if (strings.length == 4 && strings[1].equalsIgnoreCase("add")) {
+                    return getApplicableTabCompleters(strings[3], Arrays.asList("4", "6", "10", "16"));
                 }
             }
         }

@@ -77,6 +77,9 @@ public class DependencyModule {
                 Bukkit.getLogger().severe("[MTVehicles] An error occurred whilst loading Skript as a soft-dependency. (Make sure you're using the latest version, or try restarting the server.)");
             }
         }
+        if (Bukkit.getServer().getPluginManager().getPlugin("ItemsAdder") != null) {
+            loadedDependencies.add(SoftDependency.ITEMS_ADDER);
+        }
     }
 
     /**

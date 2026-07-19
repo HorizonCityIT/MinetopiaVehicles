@@ -196,7 +196,7 @@ regionActions:
 
 
 # -- Enable headlights for vehicles. --
-# ONLY FOR VERSIONS 1.17 AND ABOVE. MAY CAUSE LAG.
+# Entity ticking can increase server load when many vehicles are active.
 headlightsEnabled: false
 
 # -- Custom steering --

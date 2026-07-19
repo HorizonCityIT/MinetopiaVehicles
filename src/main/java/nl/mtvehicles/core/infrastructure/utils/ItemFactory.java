@@ -2,8 +2,6 @@ package nl.mtvehicles.core.infrastructure.utils;
 
 import de.tr7zw.changeme.nbtapi.NBTItem;
 import nl.mtvehicles.core.Main;
-import nl.mtvehicles.core.infrastructure.annotations.VersionSpecific;
-import nl.mtvehicles.core.infrastructure.enums.ServerVersion;
 
 import org.bukkit.*;
 import org.bukkit.enchantments.Enchantment;
@@ -13,12 +11,10 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.LeatherArmorMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
-import static nl.mtvehicles.core.infrastructure.modules.VersionModule.getServerVersion;
 
 /**
  * Class for an easy creation of items
@@ -48,13 +44,11 @@ public class ItemFactory {
         return new ItemFactory(this.item);
     }
 
-    @VersionSpecific
     public ItemFactory setDurability(int durability) {
-        if (getServerVersion() == ServerVersion.v1_12_R1) this.item.setDurability((short) durability);
-        else {
-            ItemMeta im = this.item.getItemMeta();
-            ((org.bukkit.inventory.meta.Damageable) im).setDamage(durability);
-            this.item.setItemMeta(im);
+        ItemMeta meta = this.item.getItemMeta();
+        if (meta instanceof org.bukkit.inventory.meta.Damageable damageable) {
+            damageable.setDamage(durability);
+            this.item.setItemMeta(meta);
         }
         return this;
     }
@@ -113,7 +107,7 @@ public class ItemFactory {
         im.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         im.addItemFlags(ItemFlag.HIDE_PLACED_ON);
         im.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
-        im.addItemFlags(ItemFlag.HIDE_POTION_EFFECTS);
+        im.addItemFlags(ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
         this.item.setItemMeta(im);
         return this;
     }
@@ -139,14 +133,14 @@ public class ItemFactory {
     public ItemFactory setGlowing(boolean glowing){
         if (glowing) {
             try {
-                if (!this.item.getItemMeta().hasEnchant(Enchantment.ARROW_INFINITE))
+                if (!this.item.getItemMeta().hasEnchant(Enchantment.INFINITY))
                     addEnchantGlow();
             } catch (Exception e){
                 Main.logSevere("Unable to set glowing state to true.");
             }
         } else {
-            if (this.item.getItemMeta().hasEnchant(Enchantment.ARROW_INFINITE))
-                removeEnchantment(Enchantment.ARROW_INFINITE);
+            if (this.item.getItemMeta().hasEnchant(Enchantment.INFINITY))
+                removeEnchantment(Enchantment.INFINITY);
         }
         return this;
     }
@@ -154,7 +148,7 @@ public class ItemFactory {
     public ItemFactory addEnchantGlow() {
         ItemMeta im = this.item.getItemMeta();
         assert im != null;
-        im.addEnchant(Enchantment.ARROW_INFINITE, 1, true);
+        im.addEnchant(Enchantment.INFINITY, 1, true);
         im.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         this.item.setItemMeta(im);
         return this;
@@ -242,11 +236,6 @@ public class ItemFactory {
         lore.set(pos, ChatColor.translateAlternateColorCodes('&', line));
         im.setLore(lore);
         this.item.setItemMeta(im);
-        return this;
-    }
-
-    public ItemFactory setDyeColor(DyeColor color) {
-        this.item.setDurability(color.getDyeData());
         return this;
     }
 

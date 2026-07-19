@@ -119,6 +119,21 @@ public class Vehicle {
      * Save the vehicle specifications (and possible adjustments) to in-memory storage.
      */
     public void save() {
+        if (!VehicleUtils.existsByLicensePlate(this.getLicensePlate())) {
+            throw new IllegalStateException("New vehicles must be delivered before they can be registered");
+        }
+        persist();
+    }
+
+    /** Register a freshly delivered vehicle. Only the delivery workflow may call this. */
+    void saveNew() {
+        if (VehicleUtils.existsByLicensePlate(this.getLicensePlate())) {
+            throw new IllegalStateException("Vehicle " + this.getLicensePlate() + " is already registered");
+        }
+        ConfigModule.vehicleDataConfig.registerNewVehicle(this.getLicensePlate(), this::persist);
+    }
+
+    private void persist() {
         ConfigModule.vehicleDataConfig.set(this.getLicensePlate(), VehicleDataConfig.Option.NAME, this.getName());
         ConfigModule.vehicleDataConfig.set(this.getLicensePlate(), VehicleDataConfig.Option.VEHICLE_TYPE, this.getVehicleType().toString());
         ConfigModule.vehicleDataConfig.set(this.getLicensePlate(), VehicleDataConfig.Option.SKIN_DAMAGE, this.getSkinDamage());
@@ -192,7 +207,30 @@ public class Vehicle {
      * Get the list of seats
      */
     public List<Map<String, Double>> getSeats(){
-        return (List<Map<String, Double>>) getVehicleData().get("seats");
+        if (getVehicleData() == null || !(getVehicleData().get("seats") instanceof List<?> configuredSeats)) {
+            return List.of();
+        }
+
+        List<Map<String, Double>> seats = new ArrayList<>(configuredSeats.size());
+        for (int index = 0; index < configuredSeats.size(); index++) {
+            Object configuredSeat = configuredSeats.get(index);
+            if (!(configuredSeat instanceof Map<?, ?> values)) {
+                throw new IllegalArgumentException("Invalid seat " + (index + 1) + " for vehicle " + licensePlate);
+            }
+            Map<String, Double> seat = new HashMap<>(3);
+            seat.put("x", seatCoordinate(values, "x", index));
+            seat.put("y", seatCoordinate(values, "y", index));
+            seat.put("z", seatCoordinate(values, "z", index));
+            seats.add(seat);
+        }
+        return seats;
+    }
+
+    private double seatCoordinate(Map<?, ?> seat, String axis, int index) {
+        Object value = seat.get(axis);
+        if (value instanceof Number number) return number.doubleValue();
+        throw new IllegalArgumentException("Invalid seat " + (index + 1) + " coordinate '" + axis
+                + "' for vehicle " + licensePlate + ": " + value);
     }
 
     /**

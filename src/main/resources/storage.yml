@@ -1,0 +1,26 @@
+# Persistent data backend. Static vehicle definitions remain in vehicles.yml.
+# Change the backend only while the server is stopped; /vehicle reload does not
+# switch a live storage connection.
+storage:
+  type: YAML # YAML or MARIADB
+
+  mariadb:
+    host: 127.0.0.1
+    port: 3306
+    database: mtvehicles
+    username: mtvehicles
+    password: ""
+    tablePrefix: "mtv_"
+
+    # DISABLE, TRUST, VERIFY_CA or VERIFY_FULL.
+    sslMode: DISABLE
+
+    # Dirty vehicles are coalesced and written in one transaction. No SQL is
+    # executed in the movement tick.
+    flushIntervalSeconds: 5
+
+    pool:
+      maximumPoolSize: 6
+      minimumIdle: 1
+      connectionTimeoutMs: 5000
+      maxLifetimeMs: 1800000

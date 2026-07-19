@@ -22,7 +22,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.inventory.ItemStack;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.util.HashMap;
 
 import static org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_ATTACK;

@@ -108,21 +108,7 @@ public class MessagesConfig extends MTVConfig {
      */
     private void saveLanguageFile(String countryCode){
         String fileName = "messages/messages_" + countryCode + ".yml";
-
-        File languageFile = new File(Main.instance.getDataFolder(), fileName);
-        if (!languageFile.exists()) Main.instance.saveResource(fileName, false);
+        synchronizeDefaultFile(fileName);
     }
 
-    /**
-     * Save new language files (when updating from a lower version)
-     * @param time Old messages files will be renamed and will contain this time
-     */
-    public void saveNewLanguageFiles(String time){
-        for (String lang : Language.getAllLanguageCodes()) {
-            File messagesFile = new File(Main.instance.getDataFolder(), "messages/messages_" + lang + ".yml");
-            if (!messagesFile.exists()) continue;
-            messagesFile.renameTo(new File(Main.instance.getDataFolder(), "messages/messages_" + lang + "Old_" + time + ".yml"));
-            Main.instance.saveResource("messages/messages_" + lang + ".yml", true);
-        }
-    }
 }

@@ -11,6 +11,7 @@ import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
 import nl.mtvehicles.core.infrastructure.modules.DependencyModule;
 import nl.mtvehicles.core.infrastructure.modules.VersionModule;
+import nl.mtvehicles.core.infrastructure.traffic.SpeedCameraManager;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -100,6 +101,21 @@ public class PlaceholderUtils extends PlaceholderExpansion {
             if (speed == null) return "0.0 blocks/sec";
             DecimalFormat df = new DecimalFormat("#.###");
             return df.format(speed) + " blocks/sec";
+        }
+
+        // Numeric speed in km/h, suitable for scoreboards and HUD plugins.
+        if (parameter.equalsIgnoreCase("speed") || parameter.equalsIgnoreCase("vehicle_speed_kmh")){
+            if (!p.isOnline()) return "0";
+            if (!isInsideVehicle(p.getPlayer())) return "0";
+            final String licensePlate = VehicleUtils.getLicensePlate(p.getPlayer().getVehicle());
+            return String.format(java.util.Locale.US, "%.1f", SpeedCameraManager.getSpeedKmh(licensePlate));
+        }
+
+        if (parameter.equalsIgnoreCase("vehicle_speed_raw")){
+            if (!p.isOnline()) return "0";
+            if (!isInsideVehicle(p.getPlayer())) return "0";
+            final String licensePlate = VehicleUtils.getLicensePlate(p.getPlayer().getVehicle());
+            return Double.toString(SpeedCameraManager.getSpeedKmh(licensePlate));
         }
 
         if (parameter.equalsIgnoreCase("vehicle_maxspeed")){

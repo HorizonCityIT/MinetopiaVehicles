@@ -6,16 +6,14 @@ import nl.mtvehicles.core.Main;
 import nl.mtvehicles.core.infrastructure.dataconfig.*;
 import nl.mtvehicles.core.infrastructure.models.MTVConfig;
 
-import java.io.File;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 
 /**
  * Module for managing configuration files
  */
 public class ConfigModule {
+    public static boolean storageReady;
     private static @Getter
     @Setter
     ConfigModule instance;
@@ -33,6 +31,8 @@ public class ConfigModule {
      * messages_xx.yml configuration files
      */
     public static MessagesConfig messagesConfig = new MessagesConfig();
+    /** Persistent storage configuration file. */
+    public static StorageConfig storageConfig = new StorageConfig();
     /**
      * VehicleData.yml configuration file
      */
@@ -45,41 +45,22 @@ public class ConfigModule {
      * Default configuration file (config.yml)
      */
     public static DefaultConfig defaultConfig = new DefaultConfig();
+    /** Siren sound sequences. */
+    public static SirensConfig sirensConfig = new SirensConfig();
 
     public ConfigModule() {
-        SimpleDateFormat formatter = new SimpleDateFormat("dd_MM_yyyy-HH_mm_ss");
-        Date date = new Date();
-
-        String configVersion = Main.configVersion;
-        String messagesVersion = Main.messagesVersion;
-
         Main.instance.saveResource("credits.txt", true);
-
-        final boolean oldConfigVersion = !secretSettings.getConfigVersion().equals(configVersion) || defaultConfig.hasOldVersionChecking();
-        final boolean oldMessagesVersion = !secretSettings.getMessagesVersion().equals(messagesVersion) || defaultConfig.hasOldVersionChecking();
-
-        if (oldConfigVersion) {
-            File dc = new File(Main.instance.getDataFolder(), "config.yml");
-            File vc = new File(Main.instance.getDataFolder(), "vehicles.yml");
-            File sss = new File(Main.instance.getDataFolder(), "supersecretsettings.yml");
-            dc.renameTo(new File(Main.instance.getDataFolder(), "configOld_" + formatter.format(date) + ".yml"));
-            vc.renameTo(new File(Main.instance.getDataFolder(), "vehiclesOld_" + formatter.format(date) + ".yml"));
-            sss.delete();
-            Main.instance.saveDefaultConfig();
-        }
-
-        if (oldMessagesVersion) {
-            File sss = new File(Main.instance.getDataFolder(), "supersecretsettings.yml");
-            sss.delete();
-            messagesConfig.saveNewLanguageFiles(formatter.format(date));
-        }
 
         configList.add(secretSettings);
         configList.add(messagesConfig);
+        configList.add(storageConfig);
         configList.add(vehicleDataConfig);
         configList.add(vehiclesConfig);
         configList.add(defaultConfig);
+        configList.add(sirensConfig);
         reloadConfigs();
+        secretSettings.updateVersions(Main.configVersion, Main.messagesVersion);
+        storageReady = vehicleDataConfig.initializeStorage(storageConfig);
     }
 
     /**

@@ -45,16 +45,6 @@ public class DefaultConfig extends MTVConfig {
         return this.getConfiguration().get(configOption.getPath());
     }
 
-    /**
-     * Check whether the last version (before an update) was using an older method of checking the config version.
-     * This is present only for compatibility when updating from lower versions.
-     *
-     * @return True if the "Config-Versie" option was still present in config.yml.
-     */
-    public boolean hasOldVersionChecking(){
-        return this.getConfiguration().get("Config-Versie") != null;
-    }
-
     //--- DriveUp ---
 
     /**

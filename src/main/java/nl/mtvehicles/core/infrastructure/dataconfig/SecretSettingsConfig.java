@@ -5,6 +5,8 @@ import nl.mtvehicles.core.infrastructure.enums.Language;
 import nl.mtvehicles.core.infrastructure.models.MTVConfig;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
 
+import java.util.Objects;
+
 /**
  * Methods for supersecretsettings.yml.<br>
  * <b>Do not initialise this class directly. Use {@link ConfigModule#secretSettings} instead.</b>
@@ -54,5 +56,19 @@ public class SecretSettingsConfig extends MTVConfig {
         String languageCode = language.getLanguageCode();
         this.getConfiguration().set("messagesLanguage", languageCode);
         this.save();
+    }
+
+    /** Update internal schema markers without replacing the selected language. */
+    public void updateVersions(String configVersion, String messagesVersion) {
+        boolean changed = false;
+        if (!Objects.equals(getConfigVersion(), configVersion)) {
+            getConfiguration().set("configVersion", configVersion);
+            changed = true;
+        }
+        if (!Objects.equals(getMessagesVersion(), messagesVersion)) {
+            getConfiguration().set("messagesVersion", messagesVersion);
+            changed = true;
+        }
+        if (changed && !save()) throw new IllegalStateException("Could not update config version markers");
     }
 }

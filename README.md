@@ -14,14 +14,13 @@ Messages in the plugin can be displayed in multiple languages. (Default: English
 
 ---
 
-### We support all major Paper versions from 1.12.2!
+### HorizonCity production target: Paper/Leaf 1.21.11 and Java 21
 
 </div>
 
-✅ For the list of compatible versions, **[see wiki](https://wiki.mtvehicles.eu/faq.html#_5-i-am-getting-an-internal-error-occurred-error)**. <br>
-✅ We support **latest patch versions** – e.g. 1.16.5 is supported, but 1.16.1 is not. <br>
-✅ We only support **Spigot/Paper**. Other forks such as Purpur and Leaf are not supported. <br>
-❌ 1.12.1 and lower is NOT a will NOT be supported!
+✅ Compiled with `--release 21` against Paper API `1.21.11`. <br>
+✅ Paper-compatible forks such as Leaf can be used when they expose the Paper 1.21.11 API. <br>
+❌ Older/newer Minecraft releases and Java versions below 21 are intentionally rejected.
 
 ---
 
@@ -108,9 +107,8 @@ These commands can only be executed by the owner of the vehicle. **Hold a vehicl
 | `/vehicle setowner %player%`           | Set an owner of a vehicle                                        | `mtvehicles.setowner`    |
 | `/vehicle delete`                      | Remove a vehicle in your hand from the data                      | `mtvehicles.delete`      |
 | `/vehicle despawn %license-plate%`     | Despawn the vehicle from all worlds (doesn't remove from the DB) | `mtvehicles.despawn`     |
+| `/vehicle despawnall`                  | Despawn every real loaded vehicle without deleting persistent records | `mtvehicles.despawnall` |
 | `/vehicle update`                      | Update the plugin to the latest version                          | `mtvehicles.update`      |
-| ~~`/vehicle givevoucher %player% %uuid%`~~ | Give a voucher to a player (Use /vehicle give)               | `mtvehicles.givevoucher` |
-| ~~`/vehicle givecar %player% %uuid%`~~     | Give a vehicle to a player (Use /vehicle give)               | `mtvehicles.givecar`     |
 
 
 ### Other permissions
@@ -125,13 +123,35 @@ These commands can only be executed by the owner of the vehicle. **Hold a vehicl
 | `mtvehicles.limit.X`              | Number of vehicles obtainable from /vehicle menu (Change X to an integer, e.g. `mtvehicles.limit.6`) |
 | `mtvehicles.nolimit`              | No limit for vehicles obtainable from /vehicle menu (in case of issues)                            |
 
+## **Horizon Roleplay license plates**
+
+New vehicles receive the lowest available plate in the `hz001rp`–`hz999rp` range. Deleted database identities release their number for reuse; after `hz999rp`, allocation continues at `hz001rq`, then advances through the two-letter suffixes. Existing plates from older versions are preserved unchanged. Despawning a vehicle does not release its plate because its persistent identity still exists; `/vehicle delete` does.
+
 ## **Softdependencies**
+
+### ItemsAdder
+
+ItemsAdder custom items can be used as vehicle skins by putting their full `namespace:item` ID in both the category `skinItem` and the skin `SkinItem` fields. MTVehicles keeps the ItemsAdder item data intact; `itemDamage` is retained only for vehicle configuration compatibility and should normally be `0` for ItemsAdder items.
+
+```yaml
+- name: "Police vehicles"
+  vehicleType: CAR
+  skinItem: horizoncity:police_car
+  itemDamage: 0
+  # ...category settings...
+  cars:
+    - name: "Police car"
+      SkinItem: horizoncity:police_car
+      itemDamage: 0
+      uuid: POLICE
+      price: 10000.0
+```
+
+ItemsAdder is optional for vanilla MTVehicles configurations, but it must be installed and its data must be loaded before namespaced custom vehicles can be created or spawned.
 
 ### WorldGuard
 
 You can download <a href="https://dev.bukkit.org/projects/worldguard">WorldGuard</a> to get access to custom features with regions. (Do not forget that WorldGuard needs WorldEdit as its dependency.)
-
-> ⚠ WorldGuard features are not supported on 1.12.2 as it is no longer maintained and uses older API version.
 
 You can edit the behaviour **in the config** where you may also find information how to set up the custom flags.
 
@@ -173,6 +193,9 @@ MTVehicles offers special placeholders for you to use.
 | `%mtv_vehicle_type%`         | Type of a vehicle a player is sitting in                      |
 | `%mtv_vehicle_fuel%`         | Remaining fuel of a vehicle a player is sitting in            |
 | `%mtv_vehicle_speed%`        | Current speed of a vehicle a player is sitting in             |
+| `%mtv_speed%`                | Numeric speed in km/h (one decimal)                            |
+| `%mtv_vehicle_speed_kmh%`    | Alias for numeric speed in km/h                                |
+| `%mtv_vehicle_speed_raw%`    | Unrounded numeric speed in km/h                                |
 | `%mtv_vehicle_maxspeed%`     | Maximum speed of a vehicle a player is sitting in             |
 | `%mtv_vehicle_place%`        | Get information whether the player is a DRIVER or a PASSENGER |
 | `%mtv_vehicle_seats%`        | Get the number of seats of a vehicle a player is sitting in   |
@@ -187,19 +210,41 @@ You can download <a href="https://www.spigotmc.org/resources/vault.34315/">Vault
 This includes:
 * Filling up jerrycans at gas stations for a specified price (can be adjusted in config.yml)!
 * Enabling vehicles' price (can be adjusted in vehicles.yml)
-* Buying vehicles and vouchers (with `/mtv buy` – or /mtv buycar and /mtv buyvoucher, if you wish to use UUID)
+* Buying vehicles and vouchers with `/mtv buy`.
 
 #### Additional commands
 
 | Command                       | Description                                             | Permission |
 |-------------------------------|---------------------------------------------------------|-------|
 | `/vehicle buy %vehicle% [--voucher:true]` | Buy a vehicle/voucher (uses tab completer)  | `mtvehicles.buyvoucher` or `mtvehicles.buycar` |
-| ~~`/vehicle buycar %uuid%`~~      | Buy a vehicle (for the price specified in vehicles.yml) | `mtvehicles.buycar`    |
-| ~~`/vehicle buyvoucher %uuid%`~~  | Buy a voucher (which costs the same as a vehicle)       | `mtvehicles.buyvoucher` |
 
 ### Skript
 
 You can perform some basic tasks with the Skript API. See the [Skript page on MTVehicles Wiki](https://wiki.mtvehicles.eu/information/skript.html) for documentation.
+
+### Traffic enforcement and FDO sirens
+
+Static speed cameras, the dynamic speed gun, speed placeholders and configurable emergency-vehicle sirens are documented in [DOCUMENTAZIONE-TRAFFICO-FDO.md](DOCUMENTAZIONE-TRAFFICO-FDO.md).
+
+### Attached vehicle visual API
+
+The HorizonCity build exposes a lightweight API for rendering a vehicle skin attached to another
+spawned vehicle. The rendered copy is not a driveable vehicle, has no collision and is removed when
+the host despawns or when MTVehicles is disabled.
+
+```java
+VehicleUtils.attachVehicleVisual(hostPlate, sourcePlate, forward, vertical, sideways, yawOffset, scale, pitchOffset);
+VehicleUtils.hasAttachedVehicleVisual(hostPlate);
+VehicleUtils.removeAttachedVehicleVisual(hostPlate);
+```
+
+Negative `forward` values place the visual behind the host; negative `pitchOffset` values raise its
+front and lower its rear. The `scale` overload uses the entity scale attribute available on Paper
+1.21+. The previous overloads remain available for compatibility. Integrations should persist their
+own load state; this API intentionally manages only the transient visual entity.
+
+`VehicleUtils.getNearestVehicleLicensePlate(location, radius)` performs a bounded, spherical lookup of
+the closest spawned MTVehicles model. It ignores unrelated armor stands and returns only registered plates.
 
 <div align="right">
   <sub>README.md by <a href="https://github.com/Zettovec">Nikd0</a> & <a href="https://github.com/Jeffrey-H">Jeffrey-H</a></sub>

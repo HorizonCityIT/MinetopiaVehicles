@@ -57,6 +57,11 @@
       <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
     </remote-repository>
     <remote-repository>
+      <option name="id" value="matteodev" />
+      <option name="name" value="matteodev" />
+      <option name="url" value="https://maven.devs.beer/" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="nms-repo" />
       <option name="name" value="nms-repo" />
       <option name="url" value="https://repo.codemc.io/repository/nms/" />

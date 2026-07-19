@@ -6,7 +6,6 @@ import nl.mtvehicles.core.infrastructure.enums.InventoryTitle;
 import nl.mtvehicles.core.infrastructure.enums.Message;
 import nl.mtvehicles.core.infrastructure.utils.ItemUtils;
 import nl.mtvehicles.core.infrastructure.utils.TriFunction;
-import nl.mtvehicles.core.infrastructure.models.MTVConfig;
 import nl.mtvehicles.core.infrastructure.models.MTVSubCommand;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
@@ -64,7 +63,6 @@ public class VehicleEdit extends MTVSubCommand {
         if (!isHoldingVehicle())
             return true;
 
-        ConfigModule.configList.forEach(MTVConfig::reload);
         if (arguments.length == 1 && isPlayer) {
             sendMessage(Message.MENU_OPEN);
             editMenu(player, item);
@@ -137,22 +135,23 @@ public class VehicleEdit extends MTVSubCommand {
             return false;
         }
 
-        for (VehicleDataConfig.Option option : VehicleDataConfig.Option.values()) {
-            Object value = ConfigModule.vehicleDataConfig.get(licensePlate, option);
-            if (value != null) {
-                ConfigModule.vehicleDataConfig.set(newLicensePlate, option, value);
-            }
-        }
-
-        player.getInventory().setItemInMainHand(ItemUtils.getVehicleItem(
-                ItemUtils.getMaterial(ConfigModule.vehicleDataConfig
-                        .get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString()),
+        ItemStack renamedItem = ItemUtils.getVehicleItem(
+                ConfigModule.vehicleDataConfig
+                        .get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString(),
                 ConfigModule.vehicleDataConfig.getDamage(licensePlate),
                 (boolean) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.IS_GLOWING),
                 ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.NAME).toString(),
-                newLicensePlate));
+                newLicensePlate);
+        if (renamedItem == null) return false;
 
-        ConfigModule.vehicleDataConfig.delete(licensePlate);
+        ItemStack previousItem = player.getInventory().getItemInMainHand().clone();
+        player.getInventory().setItemInMainHand(renamedItem);
+        try {
+            ConfigModule.vehicleDataConfig.renameVehicle(licensePlate, newLicensePlate);
+        } catch (RuntimeException exception) {
+            player.getInventory().setItemInMainHand(previousItem);
+            throw exception;
+        }
         return true;
     }
 
@@ -169,8 +168,8 @@ public class VehicleEdit extends MTVSubCommand {
         ConfigModule.vehicleDataConfig.save();
 
         player.getInventory().setItemInMainHand(ItemUtils.getVehicleItem(
-                ItemUtils.getMaterial(ConfigModule.vehicleDataConfig
-                        .get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString()),
+                ConfigModule.vehicleDataConfig
+                        .get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString(),
                 ConfigModule.vehicleDataConfig.getDamage(licensePlate),
                 (boolean) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.IS_GLOWING),
                 newName,
@@ -326,10 +325,10 @@ public class VehicleEdit extends MTVSubCommand {
         ItemStack item = player.getInventory().getItemInMainHand();
         ItemMeta meta = item.getItemMeta();
         if(valueStr.equalsIgnoreCase("true")) {
-            meta.addEnchant(Enchantment.ARROW_INFINITE, 1, true);
+            meta.addEnchant(Enchantment.INFINITY, 1, true);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         } else {
-            meta.removeEnchant(Enchantment.ARROW_INFINITE);
+            meta.removeEnchant(Enchantment.INFINITY);
             meta.removeItemFlags(ItemFlag.HIDE_ENCHANTS);
         }
         item.setItemMeta(meta);
@@ -414,7 +413,7 @@ public class VehicleEdit extends MTVSubCommand {
         MessagesConfig msg = ConfigModule.messagesConfig;
         Inventory inv = Bukkit.createInventory(null, 27, InventoryTitle.VEHICLE_EDIT_MENU.getStringTitle());
         inv.setItem(10, ItemUtils.getMenuCustomItem(
-                ItemUtils.getMaterial(ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString()),
+                ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.SKIN_ITEM).toString(),
                 "mtcustom",
                 ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.NBT_VALUE),
                 msg.getMessage(Message.VEHICLE_SETTINGS),
@@ -424,7 +423,7 @@ public class VehicleEdit extends MTVSubCommand {
         inv.setItem(11, ItemUtils.getMenuCustomItem(Material.DIAMOND_HOE, msg.getMessage(Message.FUEL_SETTINGS), 58, ""));
         inv.setItem(12, ItemUtils.getMenuItem(Material.CHEST, 1, msg.getMessage(Message.TRUNK_SETTINGS), ""));
         inv.setItem(13, ItemUtils.getMenuItem(Material.PAPER, 1, msg.getMessage(Message.MEMBER_SETTINGS), ""));
-        inv.setItem(14, ItemUtils.getMenuItem("LIME_STAINED_GLASS", "STAINED_GLASS", (short) 5, 1, msg.getMessage(Message.SPEED_SETTINGS), ""));
+        inv.setItem(14, ItemUtils.getMenuItem(Material.LIME_STAINED_GLASS, 1, msg.getMessage(Message.SPEED_SETTINGS), ""));
         inv.setItem(16, ItemUtils.getMenuItem(Material.BARRIER, 1, msg.getMessage(Message.DELETE_VEHICLE), msg.getMessage(Message.DELETE_WARNING_LORE)));
         p.openInventory(inv);
     }

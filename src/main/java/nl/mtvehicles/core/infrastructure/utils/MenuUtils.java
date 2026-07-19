@@ -5,7 +5,6 @@ import nl.mtvehicles.core.infrastructure.dataconfig.MessagesConfig;
 import nl.mtvehicles.core.infrastructure.dataconfig.VehicleDataConfig;
 import nl.mtvehicles.core.infrastructure.enums.InventoryTitle;
 import nl.mtvehicles.core.infrastructure.enums.Message;
-import nl.mtvehicles.core.infrastructure.models.MTVConfig;
 import nl.mtvehicles.core.infrastructure.vehicle.Vehicle;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
@@ -36,9 +35,7 @@ public class MenuUtils {
      */
     public static ItemStack getBackItem(){
         return ItemUtils.getMenuItem(
-                "OAK_DOOR",
-                "WOOD_DOOR",
-                (short) 0,
+                Material.OAK_DOOR,
                 1,
                 ConfigModule.messagesConfig.getMessage(Message.BACK),
                 ConfigModule.messagesConfig.getMessage(Message.BACK_DESCRIPTION)
@@ -72,7 +69,7 @@ public class MenuUtils {
 
         MessagesConfig msg = ConfigModule.messagesConfig;
 
-        inv.setItem(10, ItemUtils.getMenuCustomItem(ItemUtils.getMaterial(skinItem), "&6" + msg.getMessage(Message.EDIT_NAME), skinDamage, String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), name)));
+        inv.setItem(10, ItemUtils.getMenuCustomItem(skinItem, "&6" + msg.getMessage(Message.EDIT_NAME), skinDamage, String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), name)));
         inv.setItem(13, ItemUtils.getMenuItem(Material.PAPER, 1, "&6" + msg.getMessage(Message.EDIT_LICENSE_PLATE), String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), licensePlate)));
         if (isGlowing)
             //inv.setItem(16, ItemUtils.glowItem("BOOK", "&6" + msg.getMessage(Message.TOGGLE_GLOW), String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), msg.getMessage(Message.TURNED_ON))));
@@ -169,49 +166,37 @@ public class MenuUtils {
         MessagesConfig msg = ConfigModule.messagesConfig;
 
         ItemStack option1 = ItemUtils.getMenuItem(
-                "LIME_STAINED_GLASS",
-                "STAINED_GLASS",
-                (short) 5,
+                Material.LIME_STAINED_GLASS,
                 1,
                 "&6" + msg.getMessage(Message.ACCELERATION_SPEED),
                 String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), data.get(licensePlate, VehicleDataConfig.Option.ACCELERATION_SPEED))
         );
         ItemStack option2 = ItemUtils.getMenuItem(
-                "LIME_STAINED_GLASS",
-                "STAINED_GLASS",
-                (short) 5,
+                Material.LIME_STAINED_GLASS,
                 1,
                 "&6" + msg.getMessage(Message.MAX_SPEED),
                 String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), data.get(licensePlate, VehicleDataConfig.Option.MAX_SPEED))
         );
         ItemStack option3 = ItemUtils.getMenuItem(
-                "LIME_STAINED_GLASS",
-                "STAINED_GLASS",
-                (short) 5,
+                Material.LIME_STAINED_GLASS,
                 1,
                 "&6" + msg.getMessage(Message.BRAKING_SPEED),
                 String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), data.get(licensePlate, VehicleDataConfig.Option.BRAKING_SPEED))
         );
         ItemStack option4 = ItemUtils.getMenuItem(
-                "LIME_STAINED_GLASS",
-                "STAINED_GLASS",
-                (short) 5,
+                Material.LIME_STAINED_GLASS,
                 1,
                 "&6" + msg.getMessage(Message.FRICTION_SPEED),
                 String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), data.get(licensePlate, VehicleDataConfig.Option.FRICTION_SPEED))
         );
         ItemStack option5 = ItemUtils.getMenuItem(
-                "LIME_STAINED_GLASS",
-                "STAINED_GLASS",
-                (short) 5,
+                Material.LIME_STAINED_GLASS,
                 1,
                 "&6" + msg.getMessage(Message.ROTATION_SPEED),
                 String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), data.get(licensePlate, VehicleDataConfig.Option.ROTATION_SPEED))
         );
         ItemStack option6 = ItemUtils.getMenuItem(
-                "LIME_STAINED_GLASS",
-                "STAINED_GLASS",
-                (short) 5,
+                Material.LIME_STAINED_GLASS,
                 1,
                 "&6" + msg.getMessage(Message.MAX_SPEED_BACKWARDS),
                 String.format("&7%s &e%s", msg.getMessage(Message.CURRENTLY), data.get(licensePlate, VehicleDataConfig.Option.MAX_SPEED_BACKWARDS))
@@ -245,11 +230,18 @@ public class MenuUtils {
         for (int i = 1 + page * 36 - 36; i <= page * 36; i++) {
             if (i - 1 < dataVehicle.size()) {
                 Map<?, ?> vehicle = dataVehicle.get(i-1);
-                if (vehicle.get("nbtValue") == null) {
-                    inv.addItem(ItemUtils.getVehicleItem(ItemUtils.getMaterial(vehicle.get("SkinItem").toString()), (int) vehicle.get("itemDamage"), vehicle.get("name").toString()));
-                    continue;
+                ItemStack vehicleItem = ItemUtils.getMenuVehicle(
+                        vehicle.get("SkinItem").toString(),
+                        (int) vehicle.get("itemDamage"),
+                        vehicle.get("name").toString());
+                if (vehicleItem != null) {
+                    ItemFactory factory = new ItemFactory(vehicleItem)
+                            .setNBT("mtvehicles.vehicleuuid", vehicle.get("uuid").toString());
+                    if (vehicle.get("nbtKey") != null && vehicle.get("nbtValue") != null) {
+                        factory.setNBT(vehicle.get("nbtKey").toString(), vehicle.get("nbtValue").toString());
+                    }
+                    inv.addItem(factory.toItemStack());
                 }
-                inv.addItem(ItemUtils.getVehicleItem(ItemUtils.getMaterial(vehicle.get("SkinItem").toString()), (int) vehicle.get("itemDamage"), vehicle.get("name").toString(), vehicle.get("nbtKey").toString(), vehicle.get("nbtValue")));
             }
         }
 
@@ -271,7 +263,6 @@ public class MenuUtils {
      */
     public static void restoreCMD(Player p, int page, UUID ownerUUID) {
         Inventory inv = Bukkit.createInventory(null, 54, InventoryTitle.VEHICLE_RESTORE_MENU.getStringTitle());
-        ConfigModule.configList.forEach(MTVConfig::reload);
         restorePage.put(p, page);
         if (!ConfigModule.vehicleDataConfig.isEmpty()) {
             List<String> dataVehicle = new ArrayList<>();

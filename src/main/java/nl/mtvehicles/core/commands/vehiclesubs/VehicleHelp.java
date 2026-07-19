@@ -41,6 +41,8 @@ public class VehicleHelp extends MTVSubCommand {
             sendMessage(String.format("&2/vehicle &aupdate &f- &2%s", desc(Message.ADMIN_UPDATE)));
             sendMessage(String.format("&2/vehicle &adelete &f- &2%s", desc(Message.ADMIN_DELETE)));
             sendMessage(String.format("&2/vehicle &agivefuel &f- &2%s", desc(Message.ADMIN_GIVEFUEL)));
+            sendMessage("&2/vehicle &adespawnall &f- &2Despawna tutti i veicoli realmente presenti nei mondi caricati");
+            sendMessage("&2/vehicle &aautovelox &f- &2Gestione autovelox statici e telelaser dinamico");
         }
         sendMessage("");
         sendMessage("&7&oDownload it for free at mtvehicles.nl (Maintained by Nikd0, gmrrh and Tiakin)");

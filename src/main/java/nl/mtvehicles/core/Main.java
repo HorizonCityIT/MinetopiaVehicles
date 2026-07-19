@@ -4,6 +4,8 @@ import nl.mtvehicles.core.infrastructure.dataconfig.DefaultConfig;
 import nl.mtvehicles.core.infrastructure.enums.SoftDependency;
 import nl.mtvehicles.core.infrastructure.modules.*;
 import nl.mtvehicles.core.infrastructure.utils.PluginUpdater;
+import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
+import nl.mtvehicles.core.movement.MovementManager;
 import org.bukkit.Bukkit;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -16,6 +18,7 @@ public class Main extends JavaPlugin {
      * The plugin instance
      */
     public static Main instance;
+    private boolean configModuleLoaded;
 
     /**
      * <b>Version of config.yml AND vehicles.yml - must be equal to the version in SuperSecretSettings.</b><br>
@@ -25,7 +28,7 @@ public class Main extends JavaPlugin {
      *
      * @see nl.mtvehicles.core.infrastructure.dataconfig.SecretSettingsConfig
      */
-    final public static String configVersion = "2.5.6-b";
+    final public static String configVersion = "2.5.6-c";
     /**
      * <b>Version of messages_xx.yml files - must be equal to the version in SuperSecretSettings.</b><br>
      *
@@ -39,7 +42,10 @@ public class Main extends JavaPlugin {
 
         instance = this;
 
-        if (!new VersionModule().isSupportedVersion()) return;
+        if (!new VersionModule().isSupportedVersion()) {
+            disablePlugin();
+            return;
+        }
 
         logInfo("Plugin has been loaded!");
         if (VersionModule.isPreRelease) logWarning("Be aware: You are using a pre-release. It might not be stable and it's generally not advised to use it on a production server.");
@@ -51,11 +57,18 @@ public class Main extends JavaPlugin {
         disableNBTAPIVersionMessages();
         loadSkript();
 
+        new ConfigModule();
+        configModuleLoaded = true;
+        if (!ConfigModule.storageReady) {
+            disablePlugin();
+            return;
+        }
         new CommandModule();
         new ListenersModule();
         new MetricsModule();
         new LoopModule();
-        new ConfigModule();
+        new TrafficModule();
+        MovementManager.start();
 
         if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.AUTO_UPDATE)) PluginUpdater.checkNewVersion(getServer().getConsoleSender());
     }
@@ -67,7 +80,10 @@ public class Main extends JavaPlugin {
 
     @Override
     public void onDisable(){
-        ConfigModule.vehicleDataConfig.saveToDisk();
+        if (TrafficModule.getInstance() != null) TrafficModule.getInstance().shutdown();
+        MovementManager.shutdown();
+        VehicleUtils.removeAllAttachedVehicleVisuals();
+        if (configModuleLoaded) ConfigModule.vehicleDataConfig.shutdownStorage();
         if (DependencyModule.isDependencyEnabled(SoftDependency.PLACEHOLDER_API)) DependencyModule.placeholderAPI.unregisterOnDisable();
     }
 
@@ -130,7 +146,11 @@ public class Main extends JavaPlugin {
      * Run a task using a bukkit scheduler
      */
     public static void schedulerRun(Runnable task){
-        Bukkit.getScheduler().runTask(instance, task);
+        if (Bukkit.isPrimaryThread()) {
+            task.run();
+        } else {
+            Bukkit.getScheduler().runTask(instance, task);
+        }
     }
 
     /**

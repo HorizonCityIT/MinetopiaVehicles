@@ -4,9 +4,11 @@ import nl.mtvehicles.core.infrastructure.annotations.ToDo;
 import nl.mtvehicles.core.infrastructure.enums.VehicleType;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Player;
+import org.bukkit.Location;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Maps containing vehicles' data
@@ -17,8 +19,6 @@ public class VehicleData {
      * @see Vehicle#getCurrentSpeed()
      */
     public static HashMap<String, Double> speed = new HashMap<>();
-    @Deprecated
-    public static HashMap<String, Double> speedhigh = new HashMap<>(); // What is this for???
     public static HashMap<String, Integer> maxheight = new HashMap<>();
     public static HashMap<String, Double> mainx = new HashMap<>();
     public static HashMap<String, Double> mainy = new HashMap<>();
@@ -37,7 +37,7 @@ public class VehicleData {
     public static HashMap<String, Double> fuel = new HashMap<>();
     public static HashMap<String, Double> fuelUsage = new HashMap<>();
     public static HashMap<String, ArmorStand> autostand = new HashMap<>();
-    public static HashMap<String, ArmorStand> autostand2 = new HashMap<>();
+    public static Map<String, ArmorStand> autostand2 = new ConcurrentHashMap<>();
     public static Map<String, Long> lastUsage = new HashMap<>();
     public static HashMap<String, Boolean> fallDamage = new HashMap<>(); //Used for helicopters when 'extremely falling'
 
@@ -50,6 +50,7 @@ public class VehicleData {
     public static Set<String> frictionBlocked = new HashSet<>();
     public static Set<String> brakingBlocked = new HashSet<>();
     public static HashMap<String, Set<String>> lastRegions = new HashMap<>();
+    public static HashMap<String, Location> lastRegionCheckLocation = new HashMap<>();
     public static HashMap<String, Boolean> destroyedVehicles = new HashMap<>();
     /**
      * @see VehicleUtils#openedTrunk
@@ -75,20 +76,13 @@ public class VehicleData {
     }
 
     public static Double getSpeed(@NotNull DataSpeed speedType, @NotNull String licensePlate) {
-        if (speedType == DataSpeed.MAXSPEED) {
-            return MaxSpeed.get(licensePlate);
-        } else if (speedType == DataSpeed.ACCELERATION) {
-            return AccelerationSpeed.get(licensePlate);
-        } else if (speedType == DataSpeed.BRAKING) {
-            if (brakingBlocked.contains(licensePlate)) return 0.0;
-            else return BrakingSpeed.get(licensePlate);
-        } else if (speedType == DataSpeed.MAXSPEEDBACKWARDS) {
-            return MaxSpeedBackwards.get(licensePlate);
-        } else if (speedType == DataSpeed.FRICTION) {
-            if (frictionBlocked.contains(licensePlate)) return 0.0;
-            else return FrictionSpeed.get(licensePlate);
-        }
-        return null;
+        return switch (speedType) {
+            case MAXSPEED -> MaxSpeed.get(licensePlate);
+            case ACCELERATION -> AccelerationSpeed.get(licensePlate);
+            case BRAKING -> brakingBlocked.contains(licensePlate) ? 0.0D : BrakingSpeed.get(licensePlate);
+            case MAXSPEEDBACKWARDS -> MaxSpeedBackwards.get(licensePlate);
+            case FRICTION -> frictionBlocked.contains(licensePlate) ? 0.0D : FrictionSpeed.get(licensePlate);
+        };
     }
 
     public static Integer getRotationSpeed(String licensePlate) {
@@ -97,26 +91,60 @@ public class VehicleData {
 
     public static void setSpeed(@NotNull DataSpeed speedType, @NotNull String licensePlate, @NotNull Double value) {
         switch (speedType) {
-            case MAXSPEED:
-                MaxSpeed.put(licensePlate, value);
-                break;
-            case ACCELERATION:
-                AccelerationSpeed.put(licensePlate, value);
-                break;
-            case BRAKING:
-                BrakingSpeed.put(licensePlate, value);
-                break;
-            case MAXSPEEDBACKWARDS:
-                MaxSpeedBackwards.put(licensePlate, value);
-                break;
-            case FRICTION:
-                FrictionSpeed.put(licensePlate, value);
-                break;
+            case MAXSPEED -> MaxSpeed.put(licensePlate, value);
+            case ACCELERATION -> AccelerationSpeed.put(licensePlate, value);
+            case BRAKING -> BrakingSpeed.put(licensePlate, value);
+            case MAXSPEEDBACKWARDS -> MaxSpeedBackwards.put(licensePlate, value);
+            case FRICTION -> FrictionSpeed.put(licensePlate, value);
         }
     }
 
     public static void setRotationSpeed(String licensePlate, Integer value) {
         RotationSpeed.put(licensePlate, value);
+    }
+
+    /**
+     * Remove per-drive data once a vehicle is no longer active.
+     * Parked entity references can be retained so API location lookups keep working.
+     */
+    public static void clearRuntimeData(String licensePlate, boolean removeEntityReferences) {
+        speed.remove(licensePlate);
+        maxheight.remove(licensePlate);
+        seatsize.remove(licensePlate);
+        type.remove(licensePlate);
+        fuel.remove(licensePlate);
+        fuelUsage.remove(licensePlate);
+        autostand2.remove(licensePlate);
+        RotationSpeed.remove(licensePlate);
+        MaxSpeed.remove(licensePlate);
+        AccelerationSpeed.remove(licensePlate);
+        BrakingSpeed.remove(licensePlate);
+        MaxSpeedBackwards.remove(licensePlate);
+        FrictionSpeed.remove(licensePlate);
+        frictionBlocked.remove(licensePlate);
+        brakingBlocked.remove(licensePlate);
+        lastRegions.remove(licensePlate);
+        lastRegionCheckLocation.remove(licensePlate);
+
+        String suffix = "_" + licensePlate;
+        mainx.keySet().removeIf(key -> key.endsWith(suffix));
+        mainy.keySet().removeIf(key -> key.endsWith(suffix));
+        mainz.keySet().removeIf(key -> key.endsWith(suffix));
+        seatx.keySet().removeIf(key -> key.endsWith(suffix));
+        seaty.keySet().removeIf(key -> key.endsWith(suffix));
+        seatz.keySet().removeIf(key -> key.endsWith(suffix));
+        wiekenx.keySet().removeIf(key -> key.endsWith(suffix));
+        wiekeny.keySet().removeIf(key -> key.endsWith(suffix));
+        wiekenz.keySet().removeIf(key -> key.endsWith(suffix));
+
+        autostand.entrySet().removeIf(entry -> entry.getKey().startsWith("MTVEHICLES_SEAT")
+                && entry.getKey().endsWith(suffix));
+        if (removeEntityReferences) {
+            autostand.keySet().removeIf(key -> key.endsWith(suffix));
+            fallDamage.remove(licensePlate);
+            destroyedVehicles.remove(licensePlate);
+            trunkViewers.remove(licensePlate);
+        }
     }
 
     /**
@@ -147,6 +175,12 @@ public class VehicleData {
         boolean returns = viewers.remove(player);
         trunkViewers.put(licensePlate, viewers);
         return returns;
+    }
+
+    /** Remove a disconnecting player from every tracked trunk view. */
+    public static void removeTrunkViewer(Player player) {
+        trunkViewers.values().forEach(viewers -> viewers.remove(player));
+        trunkViewers.entrySet().removeIf(entry -> entry.getValue().isEmpty());
     }
 
     /**

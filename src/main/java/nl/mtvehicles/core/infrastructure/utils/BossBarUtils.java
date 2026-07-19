@@ -4,7 +4,6 @@ import nl.mtvehicles.core.infrastructure.dataconfig.DefaultConfig;
 import nl.mtvehicles.core.infrastructure.dataconfig.VehicleDataConfig;
 import nl.mtvehicles.core.infrastructure.enums.Message;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
-import nl.mtvehicles.core.infrastructure.vehicle.VehicleData;
 import org.bukkit.Bukkit;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
@@ -21,6 +20,7 @@ public class BossBarUtils {
      * Fuel bossbar
      */
     public static HashMap<String, BossBar> Fuelbar = new HashMap<>();
+    private static final HashMap<String, Integer> lastFuelPercent = new HashMap<>();
 
     /**
      * Set bossbar's fuel amount
@@ -30,24 +30,19 @@ public class BossBarUtils {
     public static void setBossBarValue(double counter, String licensePlate) {
         if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.FUEL_ENABLED) && (boolean) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FUEL_ENABLED)) {
 
-            if (!Fuelbar.containsKey(licensePlate)) return;
+            BossBar bar = Fuelbar.get(licensePlate);
+            if (bar == null) return;
 
-            Fuelbar.get(licensePlate).setProgress(counter);
-            Fuelbar.get(licensePlate).setTitle(Math.round(counter * 100.0D) + "% " + TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.BOSSBAR_FUEL)));
+            double safeCounter = Math.max(0.0D, Math.min(counter, 1.0D));
+            int percent = (int) Math.round(safeCounter * 100.0D);
+            if (lastFuelPercent.getOrDefault(licensePlate, -1) == percent) return;
 
-            Double fuel = VehicleData.fuel.get(licensePlate);
-
-            if (fuel < 30) {
-                Fuelbar.get(licensePlate).setColor(BarColor.RED);
-                return;
-            }
-            if (fuel < 60) {
-                Fuelbar.get(licensePlate).setColor(BarColor.YELLOW);
-                return;
-            }
-            if (fuel < 100) {
-                Fuelbar.get(licensePlate).setColor(BarColor.GREEN);
-            }
+            lastFuelPercent.put(licensePlate, percent);
+            bar.setProgress(safeCounter);
+            bar.setTitle(percent + "% " + TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.BOSSBAR_FUEL)));
+            if (percent < 30) bar.setColor(BarColor.RED);
+            else if (percent < 60) bar.setColor(BarColor.YELLOW);
+            else bar.setColor(BarColor.GREEN);
         }
     }
 
@@ -58,7 +53,13 @@ public class BossBarUtils {
      */
     public static void removeBossBar(Player player, String licensePlate) {
         if ((boolean) ConfigModule.defaultConfig.get(DefaultConfig.Option.FUEL_ENABLED) && (boolean) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FUEL_ENABLED)) {
-            Fuelbar.get(licensePlate).removePlayer(player);
+            BossBar bar = Fuelbar.get(licensePlate);
+            if (bar == null) return;
+            bar.removePlayer(player);
+            if (bar.getPlayers().isEmpty()) {
+                Fuelbar.remove(licensePlate);
+                lastFuelPercent.remove(licensePlate);
+            }
         }
     }
 
@@ -73,16 +74,13 @@ public class BossBarUtils {
             String fuelString = String.valueOf(fuel);
             BossBar bar = Bukkit.createBossBar(Math.round(Double.parseDouble(fuelString)) + "% " + TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.BOSSBAR_FUEL)), BarColor.GREEN, BarStyle.SOLID);
             Fuelbar.put(licensePlate, bar);
-            if (fuel < 30) {
-                Fuelbar.get(licensePlate).setColor(BarColor.RED);
-            }
-            if (fuel < 60) {
-                Fuelbar.get(licensePlate).setColor(BarColor.YELLOW);
-            }
-            if (fuel < 100) {
-                Fuelbar.get(licensePlate).setColor(BarColor.GREEN);
-            }
-            Fuelbar.get(licensePlate).addPlayer(player);
+            int percent = (int) Math.round(Math.max(0.0D, Math.min(fuel, 100.0D)));
+            lastFuelPercent.put(licensePlate, percent);
+            if (percent < 30) bar.setColor(BarColor.RED);
+            else if (percent < 60) bar.setColor(BarColor.YELLOW);
+            else bar.setColor(BarColor.GREEN);
+            bar.setProgress(percent / 100.0D);
+            bar.addPlayer(player);
         }
     }
 }

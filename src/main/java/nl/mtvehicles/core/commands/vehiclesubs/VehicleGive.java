@@ -50,7 +50,6 @@ public class VehicleGive extends MTVSubCommand {
 
         String carUuid = vehicleList.get(arguments[2]);
 
-        ItemStack itemToGive;
         boolean useVoucher;
 
         if (arguments.length < 4) useVoucher = false;
@@ -64,25 +63,23 @@ public class VehicleGive extends MTVSubCommand {
                 return true;
             }
 
-            itemToGive = ItemUtils.createVoucher(carUuid);
+            ItemStack voucher = ItemUtils.createVoucher(carUuid);
+            if (!argPlayer.getInventory().addItem(voucher).isEmpty()) {
+                sender.sendMessage(ConfigModule.messagesConfig.getMessage(Message.NO_INVENTORY_SPACE));
+                return true;
+            }
         } else {
             if (!checkPermission("mtvehicles.givecar")) return true;
 
-            ItemStack car = VehicleUtils.createAndGetItemByUUID(argPlayer, carUuid);
-
-            if (car == null){
+            VehicleUtils.PreparedVehicle prepared = VehicleUtils.prepareVehicleByUUID(argPlayer, carUuid);
+            if (prepared == null){
                 sender.sendMessage(ConfigModule.messagesConfig.getMessage(Message.GIVE_CAR_NOT_FOUND));
                 return true;
             }
-
-            itemToGive = car;
-        }
-
-        HashMap<Integer, ItemStack> failedItems = argPlayer.getInventory().addItem(itemToGive);
-
-        if (!failedItems.isEmpty()) {
-            sender.sendMessage(ConfigModule.messagesConfig.getMessage(Message.NO_INVENTORY_SPACE));
-            return true;
+            if (!prepared.deliverTo(argPlayer)) {
+                sender.sendMessage(ConfigModule.messagesConfig.getMessage(Message.NO_INVENTORY_SPACE));
+                return true;
+            }
         }
 
         if (useVoucher)

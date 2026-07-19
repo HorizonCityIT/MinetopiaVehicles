@@ -6,7 +6,6 @@ import nl.mtvehicles.core.infrastructure.utils.PluginUpdater;
 import nl.mtvehicles.core.infrastructure.utils.TextUtils;
 import nl.mtvehicles.core.infrastructure.models.MTVListener;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
-import nl.mtvehicles.core.movement.MovementManager;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerJoinEvent;
 
@@ -19,8 +18,6 @@ public class JoinListener extends MTVListener {
     public void onJoinEventPlayer(PlayerJoinEvent event) {
         this.event = event;
         player = event.getPlayer();
-
-        MovementManager.MovementSelector(player);
 
         if (ConfigModule.secretSettings.getMessagesLanguage().contains("ns")) {
             if (player.hasPermission("mtvehicles.language") || player.hasPermission("mtvehicles.admin")) {

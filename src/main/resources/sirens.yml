@@ -1,0 +1,39 @@
+# Siren profiles used by vehicles marked with `fdo: true` in vehicles.yml.
+# Sound accepts vanilla names or resource-pack/ItemsAdder sound namespaces.
+# A tone is played every intervalTicks, cycling through the list.
+sirens:
+  POLICE:
+    intervalTicks: 7
+    volume: 2.0
+    tones:
+      - sound: "minecraft:block.note_block.bit"
+        pitch: 1.65
+      - sound: "minecraft:block.note_block.bit"
+        pitch: 0.85
+
+  AMBULANCE:
+    intervalTicks: 9
+    volume: 2.0
+    tones:
+      - sound: "minecraft:block.note_block.bell"
+        pitch: 1.45
+      - sound: "minecraft:block.note_block.bell"
+        pitch: 0.75
+
+  FIRE_BRIGADE:
+    intervalTicks: 10
+    volume: 2.2
+    tones:
+      - sound: "minecraft:block.note_block.didgeridoo"
+        pitch: 1.30
+      - sound: "minecraft:block.note_block.didgeridoo"
+        pitch: 0.70
+
+  CARABINIERI:
+    intervalTicks: 7
+    volume: 2.0
+    tones:
+      - sound: "minecraft:block.note_block.pling"
+        pitch: 1.55
+      - sound: "minecraft:block.note_block.pling"
+        pitch: 0.80

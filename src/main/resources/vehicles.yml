@@ -4,6 +4,10 @@
 #
 # Should you need help or have any questions, contact us:
 # https://mtvehicles.nl
+#
+# Optional emergency vehicle flags (on the parent vehicle or on a single entry under `cars`):
+# fdo: true
+# sirenType: POLICE # POLICE, AMBULANCE, FIRE_BRIGADE, CARABINIERI or a profile from sirens.yml
 
 voertuigen:
   - name: "Oxboard"

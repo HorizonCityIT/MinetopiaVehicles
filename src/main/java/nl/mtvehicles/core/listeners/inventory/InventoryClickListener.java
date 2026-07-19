@@ -10,17 +10,16 @@ import nl.mtvehicles.core.infrastructure.dataconfig.MessagesConfig;
 import nl.mtvehicles.core.infrastructure.dataconfig.VehicleDataConfig;
 import nl.mtvehicles.core.infrastructure.enums.InventoryTitle;
 import nl.mtvehicles.core.infrastructure.enums.Message;
-import nl.mtvehicles.core.infrastructure.enums.VehicleType;
 import nl.mtvehicles.core.infrastructure.utils.ItemUtils;
 import nl.mtvehicles.core.infrastructure.utils.LanguageUtils;
 import nl.mtvehicles.core.infrastructure.utils.MenuUtils;
 import nl.mtvehicles.core.infrastructure.utils.TextUtils;
 import nl.mtvehicles.core.infrastructure.models.MTVListener;
-import nl.mtvehicles.core.infrastructure.vehicle.Vehicle;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
 import nl.mtvehicles.core.listeners.VehicleVoucherListener;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.inventory.Inventory;
@@ -167,17 +166,13 @@ public class InventoryClickListener extends MTVListener {
         Inventory inv = Bukkit.createInventory(null, 27, InventoryTitle.CONFIRM_VEHICLE_MENU.getStringTitle());
         MessagesConfig msg = ConfigModule.messagesConfig;
         inv.setItem(11, ItemUtils.getMenuItem(
-                "RED_WOOL",
-                "WOOL",
-                (short) 14,
+                Material.RED_WOOL,
                 1,
                 "&c" + msg.getMessage(Message.CANCEL),
                 "&7" + msg.getMessage(Message.CANCEL_ACTION)
         ));
         inv.setItem(15, ItemUtils.getMenuItem(
-                "LIME_WOOL",
-                "WOOL",
-                (short) 5,
+                Material.LIME_WOOL,
                 1,
                 "&a"  + msg.getMessage(Message.CONFIRM),
                 "&7" + msg.getMessage(Message.CONFIRM_ACTION), "&7" + msg.getMessage(Message.CONFIRM_VEHICLE_GIVE)
@@ -199,55 +194,16 @@ public class InventoryClickListener extends MTVListener {
                 return;
             }
 
-            List<Map<?, ?>> vehicles = ConfigModule.vehiclesConfig.getVehicles();
-            ConfigModule.messagesConfig.sendMessage(player, Message.COMPLETED_VEHICLE_GIVE);
-            player.getInventory().addItem(vehicleMenu.get(player.getUniqueId()));
-
-            NBTItem nbt = new NBTItem(vehicleMenu.get(player.getUniqueId()));
-            String licensePlate = nbt.getString("mtvehicles.kenteken");
-
-            // Get vehicle skins
-            List<Map<?, ?>> skins = (List<Map<?, ?>>) vehicles.get(intSave.get(player.getUniqueId())).get("cars");
-            double price = 0.0;
-            for (Map<?, ?> skin : skins) {
-                if (skin.get("itemDamage").equals(vehicles.get(intSave.get(player.getUniqueId())).get("skinDamage"))) {
-                    if (skin.get("SkinItem").equals(vehicles.get(intSave.get(player.getUniqueId())).get("skinItem"))) {
-                        price = (double) skin.get("price");
-                    }
-                }
+            ItemStack selectedVehicle = vehicleMenu.get(player.getUniqueId());
+            NBTItem nbt = new NBTItem(selectedVehicle);
+            String vehicleUuid = nbt.getString("mtvehicles.vehicleuuid");
+            VehicleUtils.PreparedVehicle prepared = VehicleUtils.prepareVehicleByUUID(player, vehicleUuid);
+            if (prepared == null || !prepared.deliverTo(player)) {
+                ConfigModule.messagesConfig.sendMessage(player, Message.NO_INVENTORY_SPACE);
+                player.closeInventory();
+                return;
             }
-
-            Vehicle vehicle = new Vehicle(
-                    null,
-                    licensePlate,
-                    nbt.getString("mtvehicles.naam"),
-                    VehicleType.valueOf((String) vehicles.get(intSave.get(player.getUniqueId())).get("vehicleType")),
-                    false,
-                    vehicleMenu.get(player.getUniqueId()).getDurability(),
-                    vehicleMenu.get(player.getUniqueId()).getType().toString(),
-                    false,
-                    (boolean) vehicles.get(intSave.get(player.getUniqueId())).get("hornEnabled"),
-                    (double) vehicles.get(intSave.get(player.getUniqueId())).get("maxHealth"),
-                    (boolean) vehicles.get(intSave.get(player.getUniqueId())).get("benzineEnabled"),
-                    100,
-                    0.01,
-                    (boolean) vehicles.get(intSave.get(player.getUniqueId())).get("kofferbakEnabled"),
-                    1,
-                    ConfigModule.vehicleDataConfig.getTrunkData(licensePlate),
-                    (double) vehicles.get(intSave.get(player.getUniqueId())).get("acceleratieSpeed"),
-                    (double) vehicles.get(intSave.get(player.getUniqueId())).get("maxSpeed"),
-                    (double) vehicles.get(intSave.get(player.getUniqueId())).get("maxSpeedBackwards"),
-                    (double) vehicles.get(intSave.get(player.getUniqueId())).get("brakingSpeed"),
-                    (double) vehicles.get(intSave.get(player.getUniqueId())).get("aftrekkenSpeed"),
-                    (int) vehicles.get(intSave.get(player.getUniqueId())).get("rotateSpeed"),
-                    player.getUniqueId(),
-                    ConfigModule.vehicleDataConfig.getRiders(licensePlate),
-                    ConfigModule.vehicleDataConfig.getMembers(licensePlate),
-                    price,
-                    nbt.getString("mtcustom")
-            );
-
-            vehicle.save();
+            ConfigModule.messagesConfig.sendMessage(player, Message.COMPLETED_VEHICLE_GIVE);
             player.closeInventory();
         }
     }
@@ -457,14 +413,31 @@ public class InventoryClickListener extends MTVListener {
     private void voucherRedeemMenu(){
         if (clickedSlot == 15) { //Yes
             String carUUID = VehicleVoucherListener.voucher.get(player);
-            if (VehicleUtils.createAndGetItemByUUID(player, carUUID) == null){
+            VehicleUtils.PreparedVehicle prepared = VehicleUtils.prepareVehicleByUUID(player, carUUID);
+            if (prepared == null){
                 player.sendMessage(ConfigModule.messagesConfig.getMessage(Message.GIVE_CAR_NOT_FOUND));
                 player.closeInventory();
                 return;
             }
+
+            ItemStack currentVoucher = player.getInventory().getItemInMainHand();
+            if (currentVoucher.getType() == Material.AIR
+                    || !carUUID.equals(new NBTItem(currentVoucher).getString("mtvehicles.item"))) {
+                player.closeInventory();
+                return;
+            }
+            ItemStack originalVoucher = currentVoucher.clone();
+            player.getInventory().setItemInMainHand(currentVoucher.getAmount() <= 1
+                    ? null
+                    : currentVoucher.asQuantity(currentVoucher.getAmount() - 1));
+
+            if (!prepared.deliverTo(player)) {
+                player.getInventory().setItemInMainHand(originalVoucher);
+                ConfigModule.messagesConfig.sendMessage(player, Message.NO_INVENTORY_SPACE);
+                player.closeInventory();
+                return;
+            }
             player.sendMessage(ConfigModule.messagesConfig.getMessage(Message.VOUCHER_REDEEM));
-            player.getInventory().getItemInMainHand().setAmount(player.getInventory().getItemInMainHand().getAmount() - 1);
-            player.getInventory().addItem(VehicleUtils.createAndGetItemByUUID(player, carUUID));
         }
 
         VehicleVoucherListener.voucher.remove(player);

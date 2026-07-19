@@ -3,6 +3,7 @@ package nl.mtvehicles.core.commands.vehiclesubs;
 import nl.mtvehicles.core.infrastructure.enums.Message;
 import nl.mtvehicles.core.infrastructure.models.MTVSubCommand;
 import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
+import nl.mtvehicles.core.infrastructure.modules.TrafficModule;
 import org.bukkit.Bukkit;
 
 /**
@@ -19,6 +20,7 @@ public class VehicleReload extends MTVSubCommand {
 
         Bukkit.getLogger().info("Reload config files..");
         ConfigModule.reloadConfigs();
+        if (TrafficModule.getInstance() != null) TrafficModule.getInstance().reload();
         Bukkit.getLogger().info("Files loaded!");
         sendMessage(Message.RELOAD_SUCCESSFUL);
 

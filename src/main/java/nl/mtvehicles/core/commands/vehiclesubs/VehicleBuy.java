@@ -8,10 +8,6 @@ import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
 import nl.mtvehicles.core.infrastructure.modules.DependencyModule;
 import nl.mtvehicles.core.infrastructure.utils.ItemUtils;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
-import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-
 import java.util.HashMap;
 
 /**
@@ -76,20 +72,23 @@ public class VehicleBuy extends MTVSubCommand {
             if (!checkPermission("mtvehicles.buyvoucher")) return true;
 
             if (!DependencyModule.vault.withdrawMoneyPlayer(player, price)) return true;
-            // This also sends a confirmation message - whether the purchase was successful or not.
-
-            player.getInventory().addItem(
-                    ItemUtils.createVoucher(carUuid)
-            );
+            if (!player.getInventory().addItem(ItemUtils.createVoucher(carUuid)).isEmpty()) {
+                DependencyModule.vault.depositMoneyPlayer(player, price);
+                sender.sendMessage(ConfigModule.messagesConfig.getMessage(Message.NO_INVENTORY_SPACE));
+            }
         } else {
             if (!checkPermission("mtvehicles.buycar")) return true;
 
+            VehicleUtils.PreparedVehicle prepared = VehicleUtils.prepareVehicleByUUID(player, carUuid);
+            if (prepared == null) {
+                sender.sendMessage(ConfigModule.messagesConfig.getMessage(Message.GIVE_CAR_NOT_FOUND));
+                return true;
+            }
             if (!DependencyModule.vault.withdrawMoneyPlayer(player, price)) return true;
-            // This also sends a confirmation message - whether the purchase was successful or not.
-
-            player.getInventory().addItem(
-                    VehicleUtils.createAndGetItemByUUID(player, carUuid)
-            );
+            if (!prepared.deliverTo(player)) {
+                DependencyModule.vault.depositMoneyPlayer(player, price);
+                sender.sendMessage(ConfigModule.messagesConfig.getMessage(Message.NO_INVENTORY_SPACE));
+            }
         }
 
         return true;

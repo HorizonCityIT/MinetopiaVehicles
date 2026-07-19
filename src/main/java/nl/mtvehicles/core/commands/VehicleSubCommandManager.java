@@ -38,11 +38,7 @@ public class VehicleSubCommandManager extends MTVCommand {
         CommandModule.subcommands.put("removemember", new VehicleRemoveMember());
         CommandModule.subcommands.put("removerider", new VehicleRemoveRider());
         CommandModule.subcommands.put("give", new VehicleGive());
-        CommandModule.subcommands.put("givecar", new VehicleGiveCar());
-        CommandModule.subcommands.put("givevoucher", new VehicleGiveVoucher());
         CommandModule.subcommands.put("buy", new VehicleBuy());
-        CommandModule.subcommands.put("buycar", new VehicleBuyCar());
-        CommandModule.subcommands.put("buyvoucher", new VehicleBuyVoucher());
         CommandModule.subcommands.put("update", new VehicleUpdate());
         CommandModule.subcommands.put("delete", new VehicleDelete());
         CommandModule.subcommands.put("language", new VehicleLanguage());
@@ -55,7 +51,11 @@ public class VehicleSubCommandManager extends MTVCommand {
         CommandModule.subcommands.put("baggage", new VehicleTrunk());
         CommandModule.subcommands.put("givefuel", new VehicleGiveFuel());
         CommandModule.subcommands.put("despawn", new VehicleDespawn());
+        CommandModule.subcommands.put("despawnall", new VehicleDespawnAll());
         CommandModule.subcommands.put("vault", new VehicleVault());
+        VehicleSpeedCamera speedCamera = new VehicleSpeedCamera();
+        CommandModule.subcommands.put("autovelox", speedCamera);
+        CommandModule.subcommands.put("speedcamera", speedCamera);
     }
 
     @Override

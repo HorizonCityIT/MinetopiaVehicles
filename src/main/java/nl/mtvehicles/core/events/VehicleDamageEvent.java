@@ -1,7 +1,5 @@
 package nl.mtvehicles.core.events;
 
-import lombok.Getter;
-import lombok.Setter;
 import nl.mtvehicles.core.events.interfaces.CanEditLicensePlate;
 import nl.mtvehicles.core.events.interfaces.IsCancellable;
 import nl.mtvehicles.core.infrastructure.models.MTVEvent;
@@ -9,7 +7,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.event.Cancellable;
 import org.bukkit.event.entity.EntityDamageEvent;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * On vehicle damage
@@ -20,18 +18,30 @@ public class VehicleDamageEvent extends MTVEvent implements IsCancellable, Cance
     /**
      * Amount of the damage dealt to the vehicle
      */
-    @Setter
-    @Getter
     private double damage;
     private String licensePlate;
 
-    @Setter
-    @Getter
     /**
      * The cause of the damage dealt to the vehicle
      * @since 2.5.7
      */
     private EntityDamageEvent.DamageCause damageCause;
+
+    public double getDamage() {
+        return damage;
+    }
+
+    public void setDamage(double damage) {
+        this.damage = damage;
+    }
+
+    public EntityDamageEvent.DamageCause getDamageCause() {
+        return damageCause;
+    }
+
+    public void setDamageCause(EntityDamageEvent.DamageCause damageCause) {
+        this.damageCause = damageCause;
+    }
 
     @Override
     public void setCancelled(boolean cancelled) {
