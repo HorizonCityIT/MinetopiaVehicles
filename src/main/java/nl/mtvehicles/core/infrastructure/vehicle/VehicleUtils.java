@@ -25,6 +25,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiPredicate;
 
 /**
  * Useful methods for vehicles
@@ -39,6 +40,46 @@ public final class VehicleUtils {
      * A private constructor - makes this a "static class"
      */
     private VehicleUtils(){}
+
+    /**
+     * Register a policy that can prevent a player from driving a vehicle.
+     * Every registered policy must allow the action. Entry as a passenger or
+     * driver is handled separately and is not cancelled by this policy.
+     *
+     * @param key unique owner key, normally namespaced with the plugin name
+     * @param policy receives license plate and driver; return false to freeze the vehicle
+     */
+    public static void registerDrivingPolicy(String key, BiPredicate<String, Player> policy) {
+        VehicleAccessPolicies.registerDrivingPolicy(key, policy);
+    }
+
+    /**
+     * Register an override that lets a player enter a normally private vehicle.
+     * Region restrictions and seat occupancy checks still apply.
+     */
+    public static void registerEntryOverride(String key, BiPredicate<String, Player> override) {
+        VehicleAccessPolicies.registerEntryOverride(key, override);
+    }
+
+    /** Remove all driving and entry policies registered with the supplied key. */
+    public static void unregisterAccessPolicy(String key) {
+        VehicleAccessPolicies.unregister(key);
+    }
+
+    /** Check all policies registered by external plugins for the current driver. */
+    public static boolean isDrivingAllowed(String licensePlate, Player player) {
+        return VehicleAccessPolicies.isDrivingAllowed(licensePlate, player);
+    }
+
+    /** Check whether an external plugin explicitly allows entry to this vehicle. */
+    public static boolean hasEntryOverride(String licensePlate, Player player) {
+        return VehicleAccessPolicies.hasEntryOverride(licensePlate, player);
+    }
+
+    /** Clears external callbacks during plugin shutdown or reload. */
+    public static void clearAccessPolicies() {
+        VehicleAccessPolicies.clear();
+    }
 
     /**
      * HashMap containing information about which trunk a player has opened (determined by vehicle's license plate)
@@ -1303,7 +1344,8 @@ public final class VehicleUtils {
             return;
         }
 
-        if (!vehicle.isPublic() && !vehicle.isOwner(p) && !vehicle.canRide(p) && !p.hasPermission("mtvehicles.ride")){
+        if (!hasEntryOverride(licensePlate, p) && !vehicle.isPublic() && !vehicle.isOwner(p)
+                && !vehicle.canRide(p) && !p.hasPermission("mtvehicles.ride")){
             p.sendMessage(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_NO_RIDER_ENTER).replace("%p%", vehicle.getOwnerName()));
             return;
         }

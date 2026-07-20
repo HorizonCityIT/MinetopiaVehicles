@@ -112,6 +112,11 @@ public class VehicleMovement {
 
         if (VehicleData.autostand.get("MTVEHICLES_MAIN_" + license) == null) return;
 
+        if (!VehicleUtils.isDrivingAllowed(license, player)) {
+            VehicleData.speed.put(license, 0.0D);
+            return;
+        }
+
         if (VehicleData.speed.get(license) == null) {
             VehicleData.speed.put(license, 0.0);
             return;

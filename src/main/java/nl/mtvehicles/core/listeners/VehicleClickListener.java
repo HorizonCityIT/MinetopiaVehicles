@@ -103,7 +103,9 @@ public class VehicleClickListener extends MTVListener {
         final String customName = entity.getCustomName();
         if (customName.contains("MTVEHICLES_SEAT")) {
 
-            if (!vehicle.isPublic() && !vehicle.isOwner(player) && !vehicle.canSit(player) && !player.hasPermission("mtvehicles.ride")) {
+            if (!VehicleUtils.hasEntryOverride(license, player) && !vehicle.isPublic()
+                    && !vehicle.isOwner(player) && !vehicle.canSit(player)
+                    && !player.hasPermission("mtvehicles.ride")) {
                 player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_NO_RIDER_ENTER).replace("%p%", vehicle.getOwnerName())));
                 return;
             }

@@ -82,6 +82,7 @@ public class Main extends JavaPlugin {
     public void onDisable(){
         if (TrafficModule.getInstance() != null) TrafficModule.getInstance().shutdown();
         MovementManager.shutdown();
+        VehicleUtils.clearAccessPolicies();
         VehicleUtils.removeAllAttachedVehicleVisuals();
         if (configModuleLoaded) ConfigModule.vehicleDataConfig.shutdownStorage();
         if (DependencyModule.isDependencyEnabled(SoftDependency.PLACEHOLDER_API)) DependencyModule.placeholderAPI.unregisterOnDisable();
