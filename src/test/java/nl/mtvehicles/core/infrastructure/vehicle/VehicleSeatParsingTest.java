@@ -36,4 +36,35 @@ class VehicleSeatParsingTest {
 
         assertThrows(IllegalArgumentException.class, vehicle::getSeats);
     }
+
+    @Test
+    void readsPublicAccessPerSeatWithoutChangingCoordinates() {
+        Vehicle vehicle = new Vehicle();
+        vehicle.setLicensePlate("hz001rp");
+        vehicle.setVehicleData(Map.of("seats", List.of(
+                Map.of("x", 0, "y", -1, "z", 0),
+                Map.of("x", -1, "y", -1, "z", 0, "public", true))));
+
+        assertEquals(false, vehicle.isSeatPublic(1));
+        assertEquals(true, vehicle.isSeatPublic(2));
+        assertEquals(-1.0D, vehicle.getSeats().get(1).get("x"));
+    }
+
+    @Test
+    void supportsPublicSeatsForOneSpecificVehicleSkin() {
+        Vehicle vehicle = new Vehicle();
+        vehicle.setLicensePlate("police1");
+        vehicle.setSkinItem("DIAMOND_HOE");
+        vehicle.setSkinDamage(1015);
+        vehicle.setVehicleData(Map.of(
+                "seats", List.of(
+                        Map.of("x", 0, "y", -1, "z", 0),
+                        Map.of("x", -1, "y", -1, "z", 0)),
+                "cars", List.of(
+                        Map.of("SkinItem", "DIAMOND_HOE", "itemDamage", 1003, "publicSeats", List.of(2)),
+                        Map.of("SkinItem", "DIAMOND_HOE", "itemDamage", 1015, "publicSeats", List.of(2)))));
+
+        assertEquals(false, vehicle.isSeatPublic(1));
+        assertEquals(true, vehicle.isSeatPublic(2));
+    }
 }

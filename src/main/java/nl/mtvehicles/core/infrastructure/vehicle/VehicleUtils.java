@@ -17,6 +17,7 @@ import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.EulerAngle;
@@ -35,6 +36,7 @@ public final class VehicleUtils {
 
     private static final String ATTACHED_VISUAL_PREFIX = "MTVATTACHMENT_";
     private static final Map<String, AttachedVehicleVisual> attachedVehicleVisuals = new HashMap<>();
+    private static final Map<UUID, UUID> pendingSeatMounts = new HashMap<>();
 
     /**
      * A private constructor - makes this a "static class"
@@ -102,7 +104,7 @@ public final class VehicleUtils {
         List<Map<String, Double>> seats = vehicle.getSeats();
         if (seats.isEmpty()) throw new IllegalArgumentException("Vehicle has no configured driver seat.");
         Map<String, Double> mainSeat = seats.getFirst();
-        Location locationMainSeat = location.clone().add(mainSeat.get("x"), mainSeat.get("y"), mainSeat.get("z"));
+        Location locationMainSeat = getSeatLocation(location, mainSeat.get("x"), mainSeat.get("y"), mainSeat.get("z"));
 
         ItemStack skinItem = getVehicleSkinItem(licensePlate);
         if (skinItem == null) {
@@ -743,6 +745,173 @@ public final class VehicleUtils {
         return parts.length == 3 ? parts[2] : null;
     }
 
+    /** Return the one-based seat number represented by a vehicle seat entity. */
+    public static int getSeatNumber(@Nullable Entity entity) {
+        if (entity == null || entity.getCustomName() == null) return -1;
+        String name = entity.getCustomName();
+        if (name.startsWith("MTVEHICLES_MAINSEAT_")) return 1;
+        String prefix = "MTVEHICLES_SEAT";
+        if (!name.startsWith(prefix)) return -1;
+        int separator = name.indexOf('_', prefix.length());
+        if (separator < 0) return -1;
+        try {
+            return Integer.parseInt(name.substring(prefix.length(), separator));
+        } catch (NumberFormatException exception) {
+            return -1;
+        }
+    }
+
+    /**
+     * Resolve MTVehicles seat coordinates relative to a vehicle orientation.
+     * In vehicles.yml x is forward/backward, y is vertical and z is lateral.
+     */
+    public static Location getSeatLocation(@NotNull Location vehicleLocation,
+                                           double forward, double vertical, double lateral) {
+        double yawRadians = Math.toRadians(vehicleLocation.getYaw());
+        double worldX = vehicleLocation.getX() - forward * Math.sin(yawRadians)
+                + lateral * Math.cos(yawRadians);
+        double worldZ = vehicleLocation.getZ() + forward * Math.cos(yawRadians)
+                + lateral * Math.sin(yawRadians);
+        return new Location(vehicleLocation.getWorld(), worldX, vehicleLocation.getY() + vertical, worldZ,
+                vehicleLocation.getYaw(), vehicleLocation.getPitch());
+    }
+
+    /**
+     * Teleport a player into tracking range and attach them to a seat.
+     * Success is reported only when Bukkit confirms the actual passenger relation.
+     */
+    public static boolean mountOnSeat(@NotNull Entity seat, @NotNull Player player) {
+        if (!seat.isValid() || (!seat.isEmpty() && !seat.getPassengers().contains(player))) return false;
+        if (player.getVehicle() != null && player.getVehicle().equals(seat)) return true;
+        if (player.isInsideVehicle() && !player.leaveVehicle()) return false;
+
+        Location destination = seat.getLocation().clone().add(0.0D, 2.0D, 0.0D);
+        boolean alreadyTracked = player.getWorld().equals(destination.getWorld())
+                && player.getLocation().distanceSquared(destination) <= 16.0D;
+        if (!alreadyTracked) {
+            destination.setYaw(player.getLocation().getYaw());
+            destination.setPitch(player.getLocation().getPitch());
+            if (!player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) return false;
+        }
+        return seat.addPassenger(player) && seat.equals(player.getVehicle());
+    }
+
+    /**
+     * Mount a player after the interaction event has completed. Teleport and passenger packets are
+     * deliberately sent on separate ticks so the client cannot retain a ghost mount state.
+     */
+    public static boolean requestMount(@NotNull Entity seat, @NotNull Player player,
+                                       @NotNull Runnable success, @NotNull Runnable failure) {
+        return requestMount(seat, player, false, success, failure);
+    }
+
+    /** Mount a player remotely, moving them above the vehicle first only when tracking requires it. */
+    public static boolean requestRemoteMount(@NotNull Entity seat, @NotNull Player player,
+                                             @NotNull Runnable success, @NotNull Runnable failure) {
+        return requestMount(seat, player, true, success, failure);
+    }
+
+    private static boolean requestMount(Entity seat, Player player, boolean relocatePlayer,
+                                        Runnable success, Runnable failure) {
+        if (!seat.isValid() || (!seat.isEmpty() && !seat.getPassengers().contains(player))
+                || pendingSeatMounts.containsKey(seat.getUniqueId())) {
+            return false;
+        }
+        pendingSeatMounts.put(seat.getUniqueId(), player.getUniqueId());
+
+        Bukkit.getScheduler().runTask(Main.instance,
+                () -> prepareMount(seat, player, relocatePlayer, success, failure));
+        return true;
+    }
+
+    private static void prepareMount(Entity seat, Player player, boolean relocatePlayer,
+                                     Runnable success, Runnable failure) {
+        if (!seat.isValid() || !player.isOnline()) {
+            completeMount(seat, failure);
+            return;
+        }
+        if (player.isInsideVehicle() && !player.leaveVehicle()) {
+            completeMount(seat, failure);
+            return;
+        }
+
+        Location seatLocation = seat.getLocation();
+        boolean sameWorld = player.getWorld().equals(seatLocation.getWorld());
+        if (!relocatePlayer && (!sameWorld || player.getLocation().distanceSquared(seatLocation) > 64.0D)) {
+            completeMount(seat, failure);
+            return;
+        }
+        if (relocatePlayer && (!sameWorld || player.getLocation().distanceSquared(seatLocation) > 4.0D)) {
+            Location trackingLocation = seatLocation.clone().add(0.0D, 2.0D, 0.0D);
+            trackingLocation.setYaw(player.getLocation().getYaw());
+            trackingLocation.setPitch(player.getLocation().getPitch());
+            if (!player.teleport(trackingLocation, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
+                completeMount(seat, failure);
+                return;
+            }
+        }
+
+        Bukkit.getScheduler().runTask(Main.instance,
+                () -> attachPassenger(seat, player, success, failure, true));
+    }
+
+    private static void attachPassenger(Entity seat, Player player, Runnable success, Runnable failure,
+                                        boolean retryAllowed) {
+        if (!seat.isValid() || !player.isOnline()
+                || (!seat.isEmpty() && !seat.getPassengers().contains(player))) {
+            completeMount(seat, failure);
+            return;
+        }
+        if (!seat.equals(player.getVehicle()) && !seat.addPassenger(player)) {
+            completeMount(seat, failure);
+            return;
+        }
+
+        Bukkit.getScheduler().runTask(Main.instance, () -> {
+            if (seat.isValid() && seat.equals(player.getVehicle())) {
+                completeMount(seat, success);
+                return;
+            }
+            if (!retryAllowed || !seat.isValid()) {
+                completeMount(seat, failure);
+                return;
+            }
+
+            Bukkit.getScheduler().runTask(Main.instance,
+                    () -> attachPassenger(seat, player, success, failure, false));
+        });
+    }
+
+    private static void completeMount(Entity seat, Runnable callback) {
+        pendingSeatMounts.remove(seat.getUniqueId());
+        callback.run();
+    }
+
+    /** True only while this plugin is processing an already-authorized mount request. */
+    public static boolean isAuthorizedPendingMount(@Nullable Entity seat, @Nullable Entity passenger) {
+        return seat != null && passenger != null
+                && passenger.getUniqueId().equals(pendingSeatMounts.get(seat.getUniqueId()));
+    }
+
+    /** Verify the mount on the next tick and retry once after entity tracking has caught up. */
+    public static void confirmMount(@NotNull Entity seat, @NotNull Player player,
+                                    @NotNull Runnable success, @NotNull Runnable failure) {
+        Bukkit.getScheduler().runTask(Main.instance, () -> {
+            if (seat.isValid() && seat.equals(player.getVehicle())) {
+                success.run();
+                return;
+            }
+            if (!seat.isValid() || !mountOnSeat(seat, player)) {
+                failure.run();
+                return;
+            }
+            Bukkit.getScheduler().runTask(Main.instance, () -> {
+                if (seat.isValid() && seat.equals(player.getVehicle())) success.run();
+                else failure.run();
+            });
+        });
+    }
+
     /**
      * Get the UUID of a car by its license plate
      * @param licensePlate Vehicle's license plate
@@ -1321,36 +1490,53 @@ public final class VehicleUtils {
      */
     @ToDo("Beautify the code inside this method.")
     public static void enterVehicle(String licensePlate, Player p) {
-        enterVehicle(licensePlate, p, null);
+        tryEnterVehicle(licensePlate, p, null);
     }
 
     /**
      * Activate a vehicle using a clicked component as a local lookup anchor.
      */
     public static void enterVehicle(String licensePlate, Player p, @Nullable Entity anchor) {
-        ArmorStand activeDriverSeat = VehicleData.autostand2.get(licensePlate);
-        if (activeDriverSeat != null && !activeDriverSeat.isEmpty()) return;
+        tryEnterVehicle(licensePlate, p, anchor);
+    }
 
+    /** Activate a vehicle and return whether the player was actually mounted. */
+    public static boolean tryEnterVehicle(String licensePlate, Player p, @Nullable Entity anchor) {
+        return tryEnterVehicle(licensePlate, p, anchor, false);
+    }
+
+    private static boolean tryEnterVehicle(String licensePlate, Player p, @Nullable Entity anchor, boolean force) {
         Vehicle vehicle = getVehicle(licensePlate);
 
         if (vehicle == null) {
             ConfigModule.messagesConfig.sendMessage(p, Message.VEHICLE_NOT_FOUND);
-            return;
+            return false;
         }
 
         if (vehicle.getOwnerName() == null) {
             ConfigModule.messagesConfig.sendMessage(p, Message.VEHICLE_NOT_FOUND);
             Main.logSevere("Could not find the owner of vehicle " + licensePlate + "! The vehicleData.yml must be malformed!");
-            return;
+            return false;
         }
 
-        if (!hasEntryOverride(licensePlate, p) && !vehicle.isPublic() && !vehicle.isOwner(p)
+        if (!force && !vehicle.isSeatPublic(1) && !hasEntryOverride(licensePlate, p) && !vehicle.isPublic() && !vehicle.isOwner(p)
                 && !vehicle.canRide(p) && !p.hasPermission("mtvehicles.ride")){
             p.sendMessage(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_NO_RIDER_ENTER).replace("%p%", vehicle.getOwnerName()));
-            return;
+            return false;
         }
 
-        List<Entity> components = findVehicleEntities(licensePlate, anchor, p.getWorld());
+        ArmorStand activeDriverSeat = VehicleData.autostand2.get(licensePlate);
+        if (activeDriverSeat != null) {
+            if (!activeDriverSeat.isEmpty()) return false;
+            return requestMount(activeDriverSeat, p, force, () -> {
+                    BossBarUtils.addBossBar(p, licensePlate);
+                    if (!force) p.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig
+                            .getMessage(Message.VEHICLE_ENTER_RIDER).replace("%p%", vehicle.getOwnerName())));
+                }, () -> { });
+        }
+
+        Entity lookupAnchor = anchor != null ? anchor : VehicleData.autostand.get("MTVEHICLES_SKIN_" + licensePlate);
+        List<Entity> components = findVehicleEntities(licensePlate, lookupAnchor, null);
         ArmorStand skin = components.stream()
                 .filter(entity -> ("MTVEHICLES_SKIN_" + licensePlate).equals(entity.getCustomName()))
                 .map(entity -> (ArmorStand) entity)
@@ -1358,17 +1544,17 @@ public final class VehicleUtils {
                 .orElse(null);
         if (skin == null) {
             ConfigModule.messagesConfig.sendMessage(p, Message.VEHICLE_NOT_FOUND);
-            return;
+            return false;
         }
 
         boolean occupied = components.stream()
                 .anyMatch(entity -> ("MTVEHICLES_MAINSEAT_" + licensePlate).equals(entity.getCustomName()) && !entity.isEmpty());
-        if (occupied) return;
+        if (occupied) return false;
 
         Location location = skin.getLocation().clone();
         if (!ConfigModule.defaultConfig.canProceedWithAction(RegionAction.ENTER, vehicle.getVehicleType(), location, p)) {
             ConfigModule.messagesConfig.sendMessage(p, Message.CANNOT_DO_THAT_HERE);
-            return;
+            return false;
         }
 
         vehicle.saveSeats();
@@ -1376,7 +1562,7 @@ public final class VehicleUtils {
         if (seats == null || seats.isEmpty()) {
             Main.logSevere("Vehicle " + licensePlate + " has no configured driver seat.");
             ConfigModule.messagesConfig.sendMessage(p, Message.VEHICLE_NOT_FOUND);
-            return;
+            return false;
         }
 
         VehicleType vehicleType = vehicle.getVehicleType();
@@ -1390,14 +1576,17 @@ public final class VehicleUtils {
         VehicleData.setSpeed(VehicleData.DataSpeed.MAXSPEEDBACKWARDS, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.MAX_SPEED_BACKWARDS));
         VehicleData.setSpeed(VehicleData.DataSpeed.FRICTION, licensePlate, (double) ConfigModule.vehicleDataConfig.get(licensePlate, VehicleDataConfig.Option.FRICTION_SPEED));
 
-        basicStandCreator(licensePlate, "SKIN", location, skin.getHelmet(), false);
-        basicStandCreator(licensePlate, "MAIN", location, null, true);
+        List<Entity> createdComponents = new ArrayList<>();
+        createdComponents.add(basicStandCreator(licensePlate, "SKIN", location, skin.getHelmet(), false));
+        createdComponents.add(basicStandCreator(licensePlate, "MAIN", location, null, true));
         VehicleData.seatsize.put(licensePlate, seats.size());
 
         for (int i = 1; i <= seats.size(); i++) {
             Map<String, Double> seat = seats.get(i - 1);
             if (i == 1) {
-                mainSeatStandCreator(licensePlate, location, p, seat.get("x"), seat.get("y"), seat.get("z"));
+                ArmorStand driverSeat = mainSeatStandCreator(licensePlate, location, seat.get("x"), seat.get("y"), seat.get("z"));
+                createdComponents.add(driverSeat);
+                VehicleData.autostand2.put(licensePlate, driverSeat);
                 continue;
             }
 
@@ -1405,13 +1594,14 @@ public final class VehicleUtils {
             VehicleData.seatx.put(seatKey, seat.get("x"));
             VehicleData.seaty.put(seatKey, seat.get("y"));
             VehicleData.seatz.put(seatKey, seat.get("z"));
-            Location seatLocation = location.clone().add(seat.get("x"), seat.get("y"), seat.get("z"));
+            Location seatLocation = getSeatLocation(location, seat.get("x"), seat.get("y"), seat.get("z"));
             ArmorStand seatStand = seatLocation.getWorld().spawn(seatLocation, ArmorStand.class);
             allowTicking(seatStand);
             seatStand.setVisible(false);
             seatStand.setCustomName(seatKey);
             seatStand.setGravity(false);
             VehicleData.autostand.put(seatKey, seatStand);
+            createdComponents.add(seatStand);
         }
 
         if (vehicleType.isHelicopter()) {
@@ -1431,19 +1621,26 @@ public final class VehicleUtils {
                     bladeStand.setHelmet((ItemStack) blade.get("item"));
                 }
                 VehicleData.autostand.put(bladeKey, bladeStand);
+                createdComponents.add(bladeStand);
             }
             VehicleData.maxheight.put(licensePlate, (int) ConfigModule.defaultConfig.get(DefaultConfig.Option.MAX_FLYING_HEIGHT));
         }
 
-        BossBarUtils.addBossBar(p, licensePlate);
-        p.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_ENTER_RIDER).replace("%p%", vehicle.getOwnerName())));
-        components.forEach(Entity::remove);
+        ArmorStand mountedDriverSeat = VehicleData.autostand2.get(licensePlate);
+        boolean mountRequested = requestMount(mountedDriverSeat, p, force, () -> {
+            BossBarUtils.addBossBar(p, licensePlate);
+            if (!force) p.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig
+                    .getMessage(Message.VEHICLE_ENTER_RIDER).replace("%p%", vehicle.getOwnerName())));
+            components.forEach(Entity::remove);
+        }, () -> rollbackVehicleActivation(licensePlate, createdComponents, components));
+        if (!mountRequested) rollbackVehicleActivation(licensePlate, createdComponents, components);
+        return mountRequested;
     }
 
     /**
      * Used in {@link #enterVehicle(String, Player)}.
      */
-    private static void basicStandCreator(String license, String type, Location location, ItemStack item, Boolean gravity) {
+    private static ArmorStand basicStandCreator(String license, String type, Location location, ItemStack item, Boolean gravity) {
         ArmorStand as = location.getWorld().spawn(location, ArmorStand.class);
         allowTicking(as);
         as.setVisible(false);
@@ -1452,6 +1649,7 @@ public final class VehicleUtils {
         as.setGravity(gravity);
 
         VehicleData.autostand.put("MTVEHICLES_" + type + "_" + license, as);
+        return as;
     }
 
     private static void allowTicking(ArmorStand armorStand) {
@@ -1461,8 +1659,8 @@ public final class VehicleUtils {
     /**
      * Used in {@link #enterVehicle(String, Player)}.
      */
-    private static void mainSeatStandCreator(String license, Location location, Player p, double x, double y, double z) {
-        Location location2 = new Location(location.getWorld(), location.getX() + x, location.getY() + y, location.getZ() + z);
+    private static ArmorStand mainSeatStandCreator(String license, Location location, double x, double y, double z) {
+        Location location2 = getSeatLocation(location, x, y, z);
         ArmorStand as = location2.getWorld().spawn(location2, ArmorStand.class);
         allowTicking(as);
         as.setVisible(false);
@@ -1475,8 +1673,45 @@ public final class VehicleUtils {
         VehicleData.mainy.put("MTVEHICLES_MAINSEAT_" + license, y);
         VehicleData.mainz.put("MTVEHICLES_MAINSEAT_" + license, z);
 
-        as.setPassenger(p);
-        VehicleData.autostand2.put(license, as);
+        return as;
+    }
+
+    private static void rollbackVehicleActivation(String licensePlate, List<Entity> created, List<Entity> parked) {
+        created.forEach(Entity::remove);
+        VehicleData.clearRuntimeData(licensePlate, true);
+        for (Entity entity : parked) {
+            if (entity instanceof ArmorStand armorStand && entity.isValid() && entity.getCustomName() != null) {
+                VehicleData.autostand.put(entity.getCustomName(), armorStand);
+            }
+        }
+    }
+
+    /** Force a player into a specific one-based seat, bypassing only access restrictions. */
+    public static boolean forceMountPlayer(String licensePlate, Player player, int seatNumber) {
+        Vehicle vehicle = getVehicle(licensePlate);
+        if (vehicle == null || seatNumber < 1 || seatNumber > vehicle.getSeatsAmount()) return false;
+        if (seatNumber == 1) return tryEnterVehicle(licensePlate, player, null, true);
+
+        ArmorStand driverSeat = VehicleData.autostand2.get(licensePlate);
+        if (driverSeat == null || driverSeat.isEmpty()) return false;
+        ArmorStand seat = VehicleData.autostand.get("MTVEHICLES_SEAT" + seatNumber + "_" + licensePlate);
+        return seat != null && seat.isEmpty() && requestRemoteMount(seat, player, () -> { }, () -> { });
+    }
+
+    /** Force a player into the first free passenger seat of an active vehicle. */
+    public static boolean forceMountPlayer(String licensePlate, Player player) {
+        Vehicle vehicle = getVehicle(licensePlate);
+        if (vehicle == null) return false;
+        for (int seatNumber = 2; seatNumber <= vehicle.getSeatsAmount(); seatNumber++) {
+            ArmorStand seat = VehicleData.autostand.get("MTVEHICLES_SEAT" + seatNumber + "_" + licensePlate);
+            if (seat != null && seat.isEmpty() && requestRemoteMount(seat, player, () -> { }, () -> { })) return true;
+        }
+        return false;
+    }
+
+    /** Dismount a player from an MTVehicles seat. */
+    public static boolean forceDismountPlayer(Player player) {
+        return isInsideVehicle(player) && kickOut(player);
     }
 
     /**

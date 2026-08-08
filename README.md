@@ -88,6 +88,10 @@ These commands can only be executed by the owner of the vehicle. **Hold a vehicl
 | `/vehicle addmember %player%`    | Add a member to your vehicle                         | `None`     |
 | `/vehicle removerider %player%`  | Remove a rider from your vehicle                     | `None`     |
 | `/vehicle removemember %player%` | Remove a member from your vehicle                    | `None`     |
+| `/veicolo aggiungi %player%`     | Add driver and passenger access with one save        | `None`     |
+| `/veicolo rimuovi %player%`      | Remove driver and passenger access with one save     | `None`     |
+| `/veicolo sali %player% [seat]`  | Force a player into a free seat                      | `mtvehicles.forcemount` |
+| `/veicolo scendi %player%`       | Force a player out of the current vehicle            | `mtvehicles.forcemount` |
 | `/vehicle trunk`                 | Open the trunk of your vehicle                       | `None`     |
 | `/vehicle repair`                | Restore the health of a vehicle (vehicle damage must be enabled in the [config.yml]) | `mtvehicles.repair` |
 | `/vehicle refill`                | Refill the vehicle's fuel                            | `mtvehicles.refill` |
@@ -109,6 +113,32 @@ These commands can only be executed by the owner of the vehicle. **Hold a vehicl
 | `/vehicle despawn %license-plate%`     | Despawn the vehicle from all worlds (doesn't remove from the DB) | `mtvehicles.despawn`     |
 | `/vehicle despawnall`                  | Despawn every real loaded vehicle without deleting persistent records | `mtvehicles.despawnall` |
 | `/vehicle update`                      | Update the plugin to the latest version                          | `mtvehicles.update`      |
+
+### Public seats
+
+Individual seats can be opened to everyone in `vehicles.yml` without making the whole vehicle public. Add `public: true` to the desired seat; seat 1 is the driver and subsequent entries are passenger seats.
+
+```yaml
+seats:
+  - x: 0.0
+    y: -1.25
+    z: 0.0
+  - x: -1.0
+    y: -1.25
+    z: 0.0
+    public: true
+```
+
+To open seats only for one skin (for example a police variant that shares its seat layout), add their one-based numbers to that skin:
+
+```yaml
+cars:
+  - name: "Sedan Politie"
+    SkinItem: DIAMOND_HOE
+    itemDamage: 1015
+    uuid: JSJ4ST
+    publicSeats: [2, 3, 4]
+```
 
 
 ### Other permissions

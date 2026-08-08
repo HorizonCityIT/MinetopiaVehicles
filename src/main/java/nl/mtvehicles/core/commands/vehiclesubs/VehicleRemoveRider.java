@@ -61,7 +61,7 @@ public class VehicleRemoveRider extends MTVSubCommand {
         riders.remove(playerUUID);
         vehicle.setRiders(riders);
         vehicle.save();
-        sendMessage(Message.MEMBER_CHANGE);
+        sendModificationSavedOnce(vehicle.getLicensePlate());
 
         return true;
     }

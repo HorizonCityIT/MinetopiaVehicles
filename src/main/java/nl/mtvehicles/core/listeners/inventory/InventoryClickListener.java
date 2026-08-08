@@ -126,11 +126,9 @@ public class InventoryClickListener extends MTVListener {
             }
         }
 
-        int currentPage = VehicleMenu.vehicleMenuPage.getOrDefault(player.getUniqueId(), 1);
-        int itemsPerPage = hasPages ? (menuSize - 9) : menuSize;
-        int actualCategoryIndex = clickedSlot + (currentPage - 1) * itemsPerPage;
+        Integer actualCategoryIndex = VehicleMenu.getCategoryIndex(player.getUniqueId(), clickedSlot);
 
-        if (actualCategoryIndex < totalVehicles) {
+        if (actualCategoryIndex != null && actualCategoryIndex >= 0 && actualCategoryIndex < totalVehicles) {
             id.put(player.getUniqueId(), 1);
             raw.put(player.getUniqueId(), actualCategoryIndex);
             MenuUtils.getvehicleCMD(player, id.get(player.getUniqueId()), raw.get(player.getUniqueId()));

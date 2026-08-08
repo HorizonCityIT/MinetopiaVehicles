@@ -6,8 +6,60 @@ softdepend: [ WorldGuard, Vault, PlaceholderAPI, Skript, ItemsAdder ]
 commands:
   minetopiavehicles:
     usage: /minetopiavehicles
-    aliases: [ mtv, minetopiav, mtvehicles, mtvehicle, vehicle ]
+    aliases: [ mtv, minetopiav, mtvehicles, mtvehicle, vehicle, veicolo ]
 permissions:
+  mtvehicles.admin:
+    description: Grants every MTVehicles administrative capability
+    default: op
+    children:
+      mtvehicles.anwb: true
+      mtvehicles.benzine: true
+      mtvehicles.buycar: true
+      mtvehicles.buyvoucher: true
+      mtvehicles.delete: true
+      mtvehicles.despawn: true
+      mtvehicles.despawnall: true
+      mtvehicles.edit: true
+      mtvehicles.filljerrycans: true
+      mtvehicles.forcemount: true
+      mtvehicles.givecar: true
+      mtvehicles.givefuel: true
+      mtvehicles.givevoucher: true
+      mtvehicles.kofferbak: true
+      mtvehicles.language: true
+      mtvehicles.menu: true
+      mtvehicles.nolimit: true
+      mtvehicles.oppakken: true
+      mtvehicles.refill: true
+      mtvehicles.reload: true
+      mtvehicles.repair: true
+      mtvehicles.restore: true
+      mtvehicles.ride: true
+      mtvehicles.setowner: true
+      mtvehicles.speedcamera.admin: true
+      mtvehicles.speedcamera.dynamic: true
+      mtvehicles.update: true
+  mtvehicles.anwb:
+    description: Allows picking up vehicles from water when the restriction is enabled
+    default: op
+  mtvehicles.benzine:
+    description: Opens the jerrycan menu
+    default: op
+  mtvehicles.buycar:
+    description: Allows buying configured vehicles through Vault
+    default: op
+  mtvehicles.buyvoucher:
+    description: Allows buying configured vehicle vouchers through Vault
+    default: op
+  mtvehicles.delete:
+    description: Permanently deletes a held vehicle record
+    default: op
+  mtvehicles.despawn:
+    description: Despawns a vehicle by license plate without deleting its record
+    default: op
+  mtvehicles.forcemount:
+    description: Force players into or out of seats in an owned vehicle
+    default: op
   mtvehicles.despawnall:
     description: Despawn every persisted vehicle currently present in loaded worlds
     default: op
@@ -16,4 +68,55 @@ permissions:
     default: op
   mtvehicles.speedcamera.dynamic:
     description: Use the dynamic speed gun
+    default: op
+  mtvehicles.edit:
+    description: Edits vehicle properties
+    default: op
+  mtvehicles.filljerrycans:
+    description: Fills jerrycans when the configuration requires permission
+    default: op
+  mtvehicles.givecar:
+    description: Gives configured vehicles to players
+    default: op
+  mtvehicles.givefuel:
+    description: Gives filled jerrycans to players
+    default: op
+  mtvehicles.givevoucher:
+    description: Gives configured vehicle vouchers to players
+    default: op
+  mtvehicles.kofferbak:
+    description: Opens trunks without being the vehicle owner
+    default: op
+  mtvehicles.language:
+    description: Opens the language selection menu
+    default: op
+  mtvehicles.menu:
+    description: Opens the configured vehicle grant menu
+    default: op
+  mtvehicles.nolimit:
+    description: Bypasses vehicle limits in the grant menu
+    default: op
+  mtvehicles.oppakken:
+    description: Bypasses normal vehicle pickup ownership and configuration restrictions
+    default: op
+  mtvehicles.refill:
+    description: Refills a held vehicle
+    default: op
+  mtvehicles.reload:
+    description: Reloads MTVehicles configuration files
+    default: op
+  mtvehicles.repair:
+    description: Repairs a held vehicle
+    default: op
+  mtvehicles.restore:
+    description: Opens the vehicle restoration menu
+    default: op
+  mtvehicles.ride:
+    description: Bypasses vehicle driver and passenger access lists
+    default: op
+  mtvehicles.setowner:
+    description: Changes the owner of a held vehicle
+    default: op
+  mtvehicles.update:
+    description: Uses the built-in plugin updater when enabled
     default: op

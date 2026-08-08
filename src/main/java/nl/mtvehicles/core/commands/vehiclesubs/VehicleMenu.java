@@ -26,6 +26,7 @@ import java.util.UUID;
 public class VehicleMenu extends MTVSubCommand {
     public static HashMap<UUID, Inventory> beginMenu = new HashMap<>();
     public static HashMap<UUID, Integer> vehicleMenuPage = new HashMap<>();
+    private static final HashMap<UUID, Map<Integer, Integer>> categorySlots = new HashMap<>();
 
     public VehicleMenu() {
         this.setPlayerCommand(true);
@@ -66,6 +67,8 @@ public class VehicleMenu extends MTVSubCommand {
 
         int start = (page - 1) * itemsPerPage;
         int end = Math.min(start + itemsPerPage, totalVehicles);
+        Map<Integer, Integer> playerCategorySlots = new HashMap<>();
+        int displaySlot = 0;
 
         for (int i = start; i < end; i++) {
             Map<?, ?> vehicle = vehicles.get(i);
@@ -77,10 +80,12 @@ public class VehicleMenu extends MTVSubCommand {
             if (itemStack == null) continue;
 
             if (vehicle.get("nbtValue") == null) {
-                inv.addItem(itemStack);
-                continue;
+                inv.setItem(displaySlot, itemStack);
+            } else {
+                inv.setItem(displaySlot, new ItemFactory(itemStack).setNBT((String) vehicle.get("nbtKey"), (String) vehicle.get("nbtValue")).toItemStack());
             }
-            inv.addItem(new ItemFactory(itemStack).setNBT((String) vehicle.get("nbtKey"), (String) vehicle.get("nbtValue")).toItemStack());
+            playerCategorySlots.put(displaySlot, i);
+            displaySlot++;
         }
 
         if (hasPages) {
@@ -96,7 +101,19 @@ public class VehicleMenu extends MTVSubCommand {
         }
 
         vehicleMenuPage.put(player.getUniqueId(), page);
+        categorySlots.put(player.getUniqueId(), playerCategorySlots);
         beginMenu.put(player.getUniqueId(), inv);
         player.openInventory(inv);
+    }
+
+    public static Integer getCategoryIndex(UUID playerUuid, int slot) {
+        Map<Integer, Integer> slots = categorySlots.get(playerUuid);
+        return slots == null ? null : slots.get(slot);
+    }
+
+    public static void clearPlayerState(UUID playerUuid) {
+        beginMenu.remove(playerUuid);
+        vehicleMenuPage.remove(playerUuid);
+        categorySlots.remove(playerUuid);
     }
 }

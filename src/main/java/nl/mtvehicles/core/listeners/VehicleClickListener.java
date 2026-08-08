@@ -14,8 +14,10 @@ import nl.mtvehicles.core.infrastructure.modules.ConfigModule;
 
 import org.bukkit.GameMode;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.entity.EntityMountEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
@@ -32,6 +34,13 @@ public class VehicleClickListener extends MTVListener {
 
     private Entity entity;
     private String license;
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onEntityMount(EntityMountEvent event) {
+        if (VehicleUtils.isAuthorizedPendingMount(event.getMount(), event.getEntity())) {
+            event.setCancelled(false);
+        }
+    }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerInteractAtEntity(PlayerInteractAtEntityEvent event) {
@@ -102,16 +111,22 @@ public class VehicleClickListener extends MTVListener {
 
         final String customName = entity.getCustomName();
         if (customName.contains("MTVEHICLES_SEAT")) {
+            Player enteringPlayer = player;
+            Entity selectedSeat = entity;
+            int seatNumber = VehicleUtils.getSeatNumber(entity);
 
-            if (!VehicleUtils.hasEntryOverride(license, player) && !vehicle.isPublic()
-                    && !vehicle.isOwner(player) && !vehicle.canSit(player)
-                    && !player.hasPermission("mtvehicles.ride")) {
-                player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_NO_RIDER_ENTER).replace("%p%", vehicle.getOwnerName())));
+            if (!vehicle.isSeatPublic(seatNumber) && !VehicleUtils.hasEntryOverride(license, enteringPlayer) && !vehicle.isPublic()
+                    && !vehicle.isOwner(enteringPlayer) && !vehicle.canSit(enteringPlayer)
+                    && !enteringPlayer.hasPermission("mtvehicles.ride")) {
+                enteringPlayer.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_NO_RIDER_ENTER).replace("%p%", vehicle.getOwnerName())));
                 return;
             }
-            if (entity.isEmpty()) {
-                entity.addPassenger(player);
-                player.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(Message.VEHICLE_ENTER_MEMBER).replace("%p%", vehicle.getOwnerName())));
+            if (selectedSeat.isEmpty()) {
+                VehicleUtils.requestMount(selectedSeat, enteringPlayer,
+                        () -> enteringPlayer.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig
+                                .getMessage(Message.VEHICLE_ENTER_MEMBER).replace("%p%", vehicle.getOwnerName()))),
+                        () -> enteringPlayer.sendMessage(TextUtils.colorize(
+                                "&cNon è stato possibile agganciarti al sedile. Riprova tra un istante.")));
             }
 
             return;

@@ -8,6 +8,7 @@ import nl.mtvehicles.core.infrastructure.vehicle.VehicleData;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Player;
+import org.bukkit.SoundCategory;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -31,7 +32,13 @@ public class SirenManager implements Listener {
 
     public void shutdown() {
         if (task != null) task.cancel();
+        task = null;
+        reload();
+    }
+
+    public void reload() {
         activeSirens.clear();
+        currentTick = 0L;
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -84,7 +91,7 @@ public class SirenManager implements Listener {
             Object soundValue = tone.get("sound");
             if (soundValue != null) {
                 float pitch = number(tone.get("pitch"), 1.0F);
-                mainStand.getWorld().playSound(mainStand, soundValue.toString(),
+                mainStand.getWorld().playSound(mainStand.getLocation(), soundValue.toString(), SoundCategory.MASTER,
                         ConfigModule.sirensConfig.getVolume(state.type), pitch);
             }
             state.toneIndex = (state.toneIndex + 1) % tones.size();

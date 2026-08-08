@@ -62,7 +62,7 @@ public class VehicleAddRider extends MTVSubCommand {
         vehicle.setRiders(riders);
         vehicle.save();
 
-        sendMessage(Message.MEMBER_CHANGE);
+        sendModificationSavedOnce(vehicle.getLicensePlate());
 
         return true;
     }

@@ -27,6 +27,7 @@ public class TrafficModule {
 
     public void reload() {
         speedCameraManager.reload();
+        sirenManager.reload();
     }
 
     public void shutdown() {

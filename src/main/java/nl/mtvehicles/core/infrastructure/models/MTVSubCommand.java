@@ -13,12 +13,17 @@ import org.bukkit.inventory.ItemStack;
 
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 import static nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils.isInsideVehicle;
 
 /**
  * Abstract class for the plugin's /mtv subcommands
  */
 public abstract class MTVSubCommand {
+    private static final Map<String, Long> recentModificationMessages = new ConcurrentHashMap<>();
     /**
      * The command sender
      */
@@ -74,6 +79,15 @@ public abstract class MTVSubCommand {
      */
     public void sendMessage(Message message){
         this.sender.sendMessage(TextUtils.colorize(ConfigModule.messagesConfig.getMessage(message)));
+    }
+
+    /** Suppress duplicate save confirmations produced by chained command aliases. */
+    protected void sendModificationSavedOnce(String licensePlate) {
+        long now = System.currentTimeMillis();
+        String key = sender.getName() + ':' + licensePlate.toLowerCase(Locale.ROOT);
+        Long previous = recentModificationMessages.put(key, now);
+        recentModificationMessages.entrySet().removeIf(entry -> now - entry.getValue() > 5000L);
+        if (previous == null || now - previous > 750L) sendMessage(Message.MEMBER_CHANGE);
     }
 
     /**

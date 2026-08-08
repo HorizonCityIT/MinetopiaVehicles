@@ -51,6 +51,7 @@ public class VehiclePlaceListener extends MTVListener {
 
         VehiclePlaceEvent api = (VehiclePlaceEvent) getAPI();
         Location spawnLoc = clickedBlock.getLocation();
+        spawnLoc.setYaw(player.getLocation().getYaw());
 
         if (ConfigModule.vehicleDataConfig.getType(license).isBoat()) { //placing boats (on top of a water body)
             while (spawnLoc.getBlock().getType().toString().contains("WATER")) {

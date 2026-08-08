@@ -189,8 +189,7 @@ public class Vehicle {
      * Get the amount of seats this vehicle has
      */
     public int getSeatsAmount(){
-        List<Map<String, Double>> seats = (List<Map<String, Double>>) getVehicleData().get("seats");
-        return seats.size();
+        return getSeats().size();
     }
 
     /**
@@ -231,6 +230,45 @@ public class Vehicle {
         if (value instanceof Number number) return number.doubleValue();
         throw new IllegalArgumentException("Invalid seat " + (index + 1) + " coordinate '" + axis
                 + "' for vehicle " + licensePlate + ": " + value);
+    }
+
+    /**
+     * Check whether a configured seat is accessible without vehicle membership.
+     * Seat numbers are one-based; the driver seat is seat 1.
+     */
+    public boolean isSeatPublic(int seatNumber) {
+        if (seatNumber < 1 || getVehicleData() == null
+                || !(getVehicleData().get("seats") instanceof List<?> configuredSeats)
+                || seatNumber > configuredSeats.size()) {
+            return false;
+        }
+        Object configuredSeat = configuredSeats.get(seatNumber - 1);
+        if (!(configuredSeat instanceof Map<?, ?> values)) return false;
+        Object publicValue = values.get("public");
+        if (publicValue instanceof Boolean value && value) return true;
+
+        Object configuredCars = getVehicleData().get("cars");
+        if (!(configuredCars instanceof List<?> cars)) return false;
+        for (Object configuredCar : cars) {
+            if (!(configuredCar instanceof Map<?, ?> car) || !matchesCurrentSkin(car)) continue;
+            Object publicSeats = car.get("publicSeats");
+            if (!(publicSeats instanceof List<?> seatNumbers)) return false;
+            return seatNumbers.stream().anyMatch(value -> value instanceof Number number
+                    && number.intValue() == seatNumber);
+        }
+        return false;
+    }
+
+    private boolean matchesCurrentSkin(Map<?, ?> car) {
+        Object item = car.get("SkinItem");
+        Object damage = car.get("itemDamage");
+        if (!(item instanceof String configuredItem) || !(damage instanceof Number configuredDamage)
+                || !configuredItem.equalsIgnoreCase(getSkinItem())
+                || configuredDamage.intValue() != getSkinDamage()) {
+            return false;
+        }
+        Object configuredNbt = car.get("nbtValue");
+        return configuredNbt == null || Objects.equals(configuredNbt.toString(), getNbtValue());
     }
 
     /**

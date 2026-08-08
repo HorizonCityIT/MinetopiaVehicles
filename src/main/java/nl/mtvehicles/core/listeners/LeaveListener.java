@@ -1,5 +1,6 @@
 package nl.mtvehicles.core.listeners;
 
+import nl.mtvehicles.core.commands.vehiclesubs.VehicleMenu;
 import nl.mtvehicles.core.infrastructure.models.MTVListener;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleData;
 import nl.mtvehicles.core.infrastructure.vehicle.VehicleUtils;
@@ -13,6 +14,7 @@ public class LeaveListener extends MTVListener {
     @EventHandler
     public void onPlayerLeave(PlayerQuitEvent pq){
         Player p = pq.getPlayer();
+        VehicleMenu.clearPlayerState(p.getUniqueId());
         VehicleData.lastUsage.remove(p.getName());
         VehicleData.removeTrunkViewer(p);
         if(!p.isInsideVehicle()) return;

@@ -62,7 +62,7 @@ public class VehicleRemoveMember extends MTVSubCommand {
         vehicle.setMembers(members);
         vehicle.save();
 
-        sendMessage(Message.MEMBER_CHANGE);
+        sendModificationSavedOnce(vehicle.getLicensePlate());
 
         return true;
     }

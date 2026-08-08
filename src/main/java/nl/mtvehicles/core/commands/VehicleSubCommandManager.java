@@ -35,8 +35,12 @@ public class VehicleSubCommandManager extends MTVCommand {
         CommandModule.subcommands.put("private", new VehiclePrivate());
         CommandModule.subcommands.put("addmember", new VehicleAddMember());
         CommandModule.subcommands.put("addrider", new VehicleAddRider());
+        CommandModule.subcommands.put("aggiungi", new VehicleAddUser());
         CommandModule.subcommands.put("removemember", new VehicleRemoveMember());
         CommandModule.subcommands.put("removerider", new VehicleRemoveRider());
+        CommandModule.subcommands.put("rimuovi", new VehicleRemoveUser());
+        CommandModule.subcommands.put("sali", new VehicleForceMount());
+        CommandModule.subcommands.put("scendi", new VehicleForceDismount());
         CommandModule.subcommands.put("give", new VehicleGive());
         CommandModule.subcommands.put("buy", new VehicleBuy());
         CommandModule.subcommands.put("update", new VehicleUpdate());

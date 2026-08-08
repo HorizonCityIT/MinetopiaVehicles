@@ -67,6 +67,13 @@ public class VehicleTabCompleterManager implements org.bukkit.command.TabComplet
                     List<String> completions = Arrays.asList("--voucher:true", "--voucher:false");
                     return getApplicableTabCompleters(strings[2], completions);
                 }
+            } else if (Arrays.asList("aggiungi", "rimuovi", "sali", "scendi").contains(subCommand)) {
+                if (strings.length == 2) {
+                    List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+                    return getApplicableTabCompleters(strings[1], playerNames);
+                } else if (subCommand.equals("sali") && strings.length == 3) {
+                    return getApplicableTabCompleters(strings[2], Arrays.asList("1", "2", "3", "4"));
+                }
             } else if (subCommand.equals("autovelox") || subCommand.equals("speedcamera")) {
                 if (strings.length == 2) {
                     return getApplicableTabCompleters(strings[1], Arrays.asList("add", "remove", "list", "dynamic"));

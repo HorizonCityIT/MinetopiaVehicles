@@ -63,7 +63,7 @@ public class VehicleSetOwner extends MTVSubCommand {
         vehicle.setOwner(argPlayer.getUniqueId());
         vehicle.save();
 
-        sendMessage(Message.MEMBER_CHANGE);
+        sendModificationSavedOnce(vehicle.getLicensePlate());
 
         return true;
     }
